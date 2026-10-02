@@ -7,6 +7,7 @@ conversations/chat/SSE API. P1 endpoints (`/conversations/{id}/files/{path}`,
 built in this phase.
 """
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -15,11 +16,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app import chat_runtime, db, services
+from app import chat_runtime, db, evals, services
 from app.db import init_db
 from app.files import store_file
-from app.models import AgentVersion, Conversation, Run
-from app.sandbox import docker_available
+from app.llm import LLM, OpenAICompatLLM
+from app.models import AgentVersion, Conversation, EvalCase, Feedback, Run
+from app.sandbox import DockerSandbox, LocalSandbox, Sandbox, docker_available
 from app.templates import list_templates
 
 # SB-5: detected once at startup (a Docker daemon ping), not re-checked per
@@ -389,3 +391,265 @@ async def run_events(run_id: str):
             chat_runtime.unsubscribe(run_id, queue)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Feedback, draft-case, eval cases (specs/04-feedback-and-evals.md T3.1)
+# ---------------------------------------------------------------------------
+def _eval_sandbox_factory() -> Sandbox:
+    """Fresh sandbox per eval trial (EV-5), using the same Docker-vs-local
+    decision as chat (set once at startup from `docker_available()`).
+    """
+    if _sandbox_mode["value"] == "docker":
+        return DockerSandbox()
+    return LocalSandbox()
+
+
+def _eval_llm_factory() -> LLM:
+    return OpenAICompatLLM()
+
+
+# Overridable by tests, same pattern as chat_runtime.llm_factory.
+eval_sandbox_factory: "callable" = _eval_sandbox_factory
+eval_llm_factory: "callable" = _eval_llm_factory
+
+
+class FeedbackBody(BaseModel):
+    rating: str
+    correction: Optional[str] = None
+
+
+@app.post("/runs/{run_id}/feedback", status_code=201)
+async def post_run_feedback(run_id: str, body: FeedbackBody) -> dict:
+    """EV-1: public endpoint (no auth; used by the share page)."""
+    with Session(db.engine) as session:
+        run = session.get(Run, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        if run.conversation_id is None:
+            raise HTTPException(status_code=400, detail="run has no conversation to attach feedback to")
+        if body.rating not in ("up", "down"):
+            raise HTTPException(status_code=400, detail="rating must be 'up' or 'down'")
+
+        feedback = evals.create_feedback(
+            session, run_id=run_id, conversation_id=run.conversation_id, rating=body.rating, correction=body.correction
+        )
+        return {
+            "id": feedback.id,
+            "run_id": feedback.run_id,
+            "conversation_id": feedback.conversation_id,
+            "rating": feedback.rating,
+            "correction": feedback.correction,
+            "status": feedback.status,
+            "created_at": feedback.created_at,
+        }
+
+
+@app.get("/agents/{agent_id}/feedback")
+async def get_agent_feedback(agent_id: str, status: Optional[str] = None) -> list[dict]:
+    with Session(db.engine) as session:
+        items = evals.list_feedback(session, agent_id, status=status)
+        return [
+            {
+                "id": f.id,
+                "run_id": f.run_id,
+                "conversation_id": f.conversation_id,
+                "rating": f.rating,
+                "correction": f.correction,
+                "status": f.status,
+                "created_at": f.created_at,
+            }
+            for f in items
+        ]
+
+
+@app.post("/feedback/{feedback_id}/draft-case")
+async def post_draft_case(feedback_id: str) -> dict:
+    """EV-2/EV-3/EV-4: drafts {name, axis, check_type, rubric} and returns it
+    WITHOUT persisting an active eval case.
+    """
+    with Session(db.engine) as session:
+        feedback = session.get(Feedback, feedback_id)
+        if feedback is None:
+            raise HTTPException(status_code=404, detail="feedback not found")
+        try:
+            draft = await evals.draft_case_from_feedback(session, feedback_id, eval_llm_factory())
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        return {
+            "name": draft.name,
+            "axis": draft.axis,
+            "check_type": draft.check_type,
+            "check_spec": {"rubric": draft.rubric},
+            "history": draft.history,
+            "from_feedback_id": draft.from_feedback_id,
+            "status": "draft",
+        }
+
+
+@app.post("/feedback/{feedback_id}/dismiss")
+async def post_dismiss_feedback(feedback_id: str) -> dict:
+    with Session(db.engine) as session:
+        try:
+            feedback = evals.dismiss_feedback(session, feedback_id)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        return {"id": feedback.id, "status": feedback.status}
+
+
+class CreateCaseBody(BaseModel):
+    name: str
+    check_type: str
+    check_spec: dict
+    axis: str = "accuracy"
+    history: Optional[list[dict]] = None
+    pinned: bool = False
+    from_feedback_id: Optional[str] = None
+
+
+def _case_out(case: EvalCase) -> dict:
+    return {
+        "id": case.id,
+        "agent_id": case.agent_id,
+        "name": case.name,
+        "axis": case.axis,
+        "history": case.history,
+        "check_type": case.check_type,
+        "check_spec": case.check_spec,
+        "pinned": case.pinned,
+        "hidden": case.hidden,
+        "parent_case_id": case.parent_case_id,
+        "from_feedback_id": case.from_feedback_id,
+        "status": case.status,
+    }
+
+
+@app.post("/agents/{agent_id}/cases", status_code=201)
+async def post_create_case(agent_id: str, body: CreateCaseBody) -> dict:
+    """Create/confirm a case (manual, or confirming a draft) -> status=active
+    (EV-4: this is the only way a case becomes active).
+    """
+    with Session(db.engine) as session:
+        agent = services.get_agent_or_404(session, agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+
+        case = services.create_eval_case(
+            session,
+            agent_id=agent_id,
+            name=body.name,
+            check_type=body.check_type,
+            check_spec=body.check_spec,
+            axis=body.axis,
+            history=body.history,
+            pinned=body.pinned,
+            hidden=False,
+            from_feedback_id=body.from_feedback_id,
+            status="active",
+        )
+
+        if body.from_feedback_id:
+            feedback = session.get(Feedback, body.from_feedback_id)
+            if feedback is not None:
+                feedback.status = "converted"
+                session.add(feedback)
+                session.commit()
+
+        return _case_out(case)
+
+
+class PatchCaseBody(BaseModel):
+    pinned: Optional[bool] = None
+    axis: Optional[str] = None
+    name: Optional[str] = None
+    status: Optional[str] = None
+
+
+@app.patch("/cases/{case_id}")
+async def patch_case(case_id: str, body: PatchCaseBody) -> dict:
+    with Session(db.engine) as session:
+        try:
+            case = services.patch_eval_case(
+                session, case_id, pinned=body.pinned, axis=body.axis, name=body.name, status=body.status
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        return _case_out(case)
+
+
+@app.get("/agents/{agent_id}/cases")
+async def get_agent_cases(agent_id: str) -> list[dict]:
+    with Session(db.engine) as session:
+        return services.list_cases_with_latest_results(session, agent_id)
+
+
+# ---------------------------------------------------------------------------
+# Eval executor + policy (specs/04-feedback-and-evals.md T3.3, T3.4)
+# ---------------------------------------------------------------------------
+class CreateEvalRunBody(BaseModel):
+    version_id: str
+
+
+@app.post("/agents/{agent_id}/eval-runs", status_code=201)
+async def post_create_eval_run(agent_id: str, body: CreateEvalRunBody) -> dict:
+    with Session(db.engine) as session:
+        agent = services.get_agent_or_404(session, agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        try:
+            judge_model = os.environ.get("JUDGE_MODEL_NAME")
+            eval_run = await evals.run_eval_run(
+                session,
+                agent_id=agent_id,
+                version_id=body.version_id,
+                sandbox_factory=eval_sandbox_factory,
+                llm_factory=eval_llm_factory,
+                judge_model=judge_model,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return evals.eval_run_summary(session, eval_run.id)
+
+
+@app.get("/eval-runs/{eval_run_id}")
+async def get_eval_run(eval_run_id: str) -> dict:
+    with Session(db.engine) as session:
+        try:
+            return evals.eval_run_summary(session, eval_run_id)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/agents/{agent_id}/policy")
+async def get_agent_policy(agent_id: str) -> dict:
+    with Session(db.engine) as session:
+        agent = services.get_agent_or_404(session, agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        policy = evals.get_or_create_policy(session, agent_id)
+        return evals.policy_to_dict(policy)
+
+
+class PutPolicyBody(BaseModel):
+    min_avg_improvement_pct: Optional[float] = None
+    max_regressions: Optional[dict] = None
+    trials_per_case: Optional[int] = None
+    pass_threshold: Optional[int] = None
+
+
+@app.put("/agents/{agent_id}/policy")
+async def put_agent_policy(agent_id: str, body: PutPolicyBody) -> dict:
+    with Session(db.engine) as session:
+        agent = services.get_agent_or_404(session, agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        policy = evals.update_policy(
+            session,
+            agent_id,
+            min_avg_improvement_pct=body.min_avg_improvement_pct,
+            max_regressions=body.max_regressions,
+            trials_per_case=body.trials_per_case,
+            pass_threshold=body.pass_threshold,
+        )
+        return evals.policy_to_dict(policy)

@@ -22,7 +22,7 @@ from typing import Optional
 from sqlmodel import Session, func, select
 
 from app.ids import new_id
-from app.models import Agent, AgentVersion, Conversation, EvalCase, Feedback, Message, Run
+from app.models import Agent, AgentVersion, Conversation, EvalCase, EvalResult, EvalRun, Feedback, Message, Run
 
 
 class ImmutableVersionError(Exception):
@@ -341,6 +341,94 @@ def create_version_from_fields(
         kwargs["files"] = files
 
     return create_version(session, agent_id=agent_id, **kwargs)
+
+
+def patch_eval_case(
+    session: Session,
+    case_id: str,
+    *,
+    pinned: Optional[bool] = None,
+    axis: Optional[str] = None,
+    name: Optional[str] = None,
+    status: Optional[str] = None,
+) -> EvalCase:
+    """`PATCH /cases/{id}`: pinned, axis, name, status. Unlike
+    `agent_versions`, `eval_cases` rows ARE mutable (no DM-1-style invariant
+    applies to them) -- the spec's own endpoint table calls this out as a
+    normal PATCH.
+    """
+    case = session.get(EvalCase, case_id)
+    if case is None:
+        raise ValueError(f"eval case {case_id!r} not found")
+
+    if pinned is not None:
+        case.pinned = pinned
+    if axis is not None:
+        case.axis = axis
+    if name is not None:
+        case.name = name
+    if status is not None:
+        case.status = status
+
+    session.add(case)
+    session.commit()
+    session.refresh(case)
+    return case
+
+
+def list_cases_with_latest_results(session: Session, agent_id: str) -> list[dict]:
+    """`GET /agents/{id}/cases`: visible (non-hidden) cases + latest results
+    on the agent's currently deployed version. "Latest results" = the most
+    recent eval_run for the deployed version that has a result for this
+    case, if any.
+    """
+    agent = session.get(Agent, agent_id)
+    deployed_version_id = agent.deployed_version_id if agent else None
+
+    cases = session.exec(
+        select(EvalCase).where(EvalCase.agent_id == agent_id, EvalCase.hidden == False)  # noqa: E712
+    ).all()
+
+    latest_eval_run = None
+    if deployed_version_id:
+        latest_eval_run = session.exec(
+            select(EvalRun)
+            .where(EvalRun.agent_id == agent_id, EvalRun.version_id == deployed_version_id, EvalRun.status == "completed")
+            .order_by(EvalRun.finished_at.desc())
+        ).first()
+
+    results_by_case: dict[str, list[EvalResult]] = {}
+    if latest_eval_run is not None:
+        rows = session.exec(select(EvalResult).where(EvalResult.eval_run_id == latest_eval_run.id)).all()
+        for r in rows:
+            results_by_case.setdefault(r.case_id, []).append(r)
+
+    out = []
+    for case in cases:
+        case_results = results_by_case.get(case.id, [])
+        passing = sum(1 for r in case_results if r.passed)
+        out.append(
+            {
+                "id": case.id,
+                "name": case.name,
+                "axis": case.axis,
+                "check_type": case.check_type,
+                "check_spec": case.check_spec,
+                "pinned": case.pinned,
+                "status": case.status,
+                "from_feedback_id": case.from_feedback_id,
+                "latest_result": (
+                    {
+                        "eval_run_id": latest_eval_run.id,
+                        "trials": len(case_results),
+                        "passing": passing,
+                    }
+                    if case_results
+                    else None
+                ),
+            }
+        )
+    return out
 
 
 def get_agent_or_404(session: Session, agent_id: str) -> Optional[Agent]:
