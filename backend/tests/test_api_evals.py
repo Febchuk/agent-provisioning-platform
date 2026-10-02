@@ -212,7 +212,7 @@ async def test_get_policy_defaults(app_client):
     resp = await app_client.get(f"/agents/{agent['id']}/policy")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["min_target_gain_pct"] == 5.0
+    assert body["min_avg_improvement_pct"] == 5.0
     assert body["trials_per_case"] == 3
     assert body["pass_threshold"] == 2
     assert body["max_regressions"] == {"accuracy": 0, "safety": 0, "tool-use": 1, "format": 1}
@@ -222,11 +222,11 @@ async def test_put_policy_updates_fields(app_client):
     agent = (await app_client.post("/agents", json={"name": "Policy Agent 2", "template": "blank"})).json()
     resp = await app_client.put(
         f"/agents/{agent['id']}/policy",
-        json={"min_target_gain_pct": 10.0, "max_regressions": {"accuracy": 1}},
+        json={"min_avg_improvement_pct": 10.0, "max_regressions": {"accuracy": 1}},
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["min_target_gain_pct"] == 10.0
+    assert body["min_avg_improvement_pct"] == 10.0
     assert body["max_regressions"] == {"accuracy": 1}
     # untouched fields keep their default
     assert body["trials_per_case"] == 3
