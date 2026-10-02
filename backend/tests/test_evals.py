@@ -401,6 +401,8 @@ async def test_run_eval_run_persists_results_and_respects_pass_threshold(session
 # AC-EV-f / EV-11
 # ---------------------------------------------------------------------------
 def test_cases_for_improver_excludes_hidden(session):
+    """DM-4 (v2 rewritten): cases_for_improver() never returns
+    `split = benchmark` cases (replaces v1's `hidden` column)."""
     agent = create_agent(session, name="Improver Cases Agent", slug="improver-cases-agent")
 
     visible_active = create_eval_case(
@@ -409,14 +411,14 @@ def test_cases_for_improver_excludes_hidden(session):
     visible_draft = create_eval_case(
         session, agent_id=agent.id, name="visible draft", check_type="contains", check_spec={"all": [], "none": []}, status="draft"
     )
-    hidden_sibling = create_eval_case(
+    benchmark_sibling = create_eval_case(
         session,
         agent_id=agent.id,
-        name="hidden sibling",
+        name="benchmark sibling",
         check_type="llm_judge",
         check_spec={"rubric": "x"},
-        hidden=True,
-        parent_case_id=visible_active.id,
+        split="benchmark",
+        origin="variant",
         status="active",
     )
 
@@ -425,5 +427,5 @@ def test_cases_for_improver_excludes_hidden(session):
 
     assert visible_active.id in result_ids
     assert visible_draft.id not in result_ids  # not active
-    assert hidden_sibling.id not in result_ids  # EV-11: hidden excluded
-    assert all(not c.hidden for c in result)
+    assert benchmark_sibling.id not in result_ids  # DM-4: benchmark split excluded
+    assert all(c.split == "improve" for c in result)

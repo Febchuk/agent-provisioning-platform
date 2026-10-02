@@ -68,14 +68,14 @@ def update_policy(
     session: Session,
     agent_id: str,
     *,
-    min_avg_improvement_pct: Optional[float] = None,
+    min_target_gain_pct: Optional[float] = None,
     max_regressions: Optional[dict] = None,
     trials_per_case: Optional[int] = None,
     pass_threshold: Optional[int] = None,
 ) -> Policy:
     policy = get_or_create_policy(session, agent_id)
-    if min_avg_improvement_pct is not None:
-        policy.min_avg_improvement_pct = min_avg_improvement_pct
+    if min_target_gain_pct is not None:
+        policy.min_target_gain_pct = min_target_gain_pct
     if max_regressions is not None:
         policy.max_regressions = max_regressions
     if trials_per_case is not None:
@@ -91,10 +91,17 @@ def update_policy(
 def policy_to_dict(policy: Policy) -> dict:
     return {
         "agent_id": policy.agent_id,
-        "min_avg_improvement_pct": policy.min_avg_improvement_pct,
+        "min_target_gain_pct": policy.min_target_gain_pct,
         "max_regressions": policy.max_regressions,
         "trials_per_case": policy.trials_per_case,
         "pass_threshold": policy.pass_threshold,
+        "axis_floors": policy.axis_floors,
+        "max_cost_increase_pct": policy.max_cost_increase_pct,
+        "min_signals": policy.min_signals,
+        "cooldown_hours": policy.cooldown_hours,
+        "max_open_proposals": policy.max_open_proposals,
+        "min_signal_rate_pct": policy.min_signal_rate_pct,
+        "monitor_sample_pct": policy.monitor_sample_pct,
     }
 
 
@@ -259,15 +266,20 @@ async def draft_case_from_feedback(session: Session, feedback_id: str, llm: LLM,
 # cases_for_improver (EV-11, AC-EV-f)
 # ---------------------------------------------------------------------------
 def cases_for_improver(session: Session, agent_id: str) -> list[EvalCase]:
-    """EV-11: cases with hidden=True SHALL be excluded from any data passed
-    to the improver. This is the one function that enforces that -- Phase 5
-    (the improver) must call this rather than querying eval_cases directly.
+    """v2 DM-4 (rewritten): cases with `split = benchmark` SHALL never be
+    returned by this function. This is a straight column swap from v1's
+    `hidden == False` filter -- v1's EV-11 mechanism (hidden siblings never
+    shown to the improver) is now expressed via `split`. This phase does NOT
+    add the `target_axis` parameter the v2 spec's `cases_for_improver()`
+    eventually takes (EV-11 rewritten: "returns only `split = improve` cases
+    on the TARGET AXIS") -- that's Phase 5's job; this function keeps its
+    current single-argument shape.
     """
     return session.exec(
         select(EvalCase).where(
             EvalCase.agent_id == agent_id,
             EvalCase.status == "active",
-            EvalCase.hidden == False,  # noqa: E712 (SQLModel comparison, not a Python bool check)
+            EvalCase.split == "improve",
         )
     ).all()
 
@@ -276,21 +288,22 @@ def cases_for_improver(session: Session, agent_id: str) -> list[EvalCase]:
 # Visible cases listing (GET /agents/{id}/cases)
 # ---------------------------------------------------------------------------
 def list_visible_cases(session: Session, agent_id: str) -> list[EvalCase]:
-    """Visible = non-hidden, per the endpoint table ("Visible cases + latest
-    results on the deployed version"). Includes draft/active/dismissed --
-    callers that want only active cases (e.g. the executor) filter further.
+    """Visible = `split = improve`, per the endpoint table ("Visible cases +
+    latest results on the deployed version"). Includes draft/active/
+    dismissed -- callers that want only active cases (e.g. the executor)
+    filter further.
     """
     return session.exec(
         select(EvalCase).where(
             EvalCase.agent_id == agent_id,
-            EvalCase.hidden == False,  # noqa: E712
+            EvalCase.split == "improve",
         )
     ).all()
 
 
 def list_active_cases(session: Session, agent_id: str) -> list[EvalCase]:
     """EV-5: "every active case (visible AND hidden)" -- the executor must
-    include hidden siblings, unlike `list_visible_cases`.
+    include benchmark-split cases too, unlike `list_visible_cases`.
     """
     return session.exec(
         select(EvalCase).where(EvalCase.agent_id == agent_id, EvalCase.status == "active")
@@ -602,7 +615,7 @@ def eval_run_summary(session: Session, eval_run_id: str) -> dict:
                 "name": case.name if case else None,
                 "axis": case.axis if case else None,
                 "pinned": case.pinned if case else False,
-                "hidden": case.hidden if case else False,
+                "split": case.split if case else None,
                 "passed": case_passed,
                 "flaky": flaky,
                 "trials": [

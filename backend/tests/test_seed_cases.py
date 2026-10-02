@@ -39,7 +39,7 @@ def test_seed_eval_cases_persists_six_active_cases(session):
     assert len(cases) == 6
     assert all(c.status == "active" for c in cases)
     assert all(c.agent_id == agent.id for c in cases)
-    assert all(not c.hidden for c in cases)
+    assert all(c.split == "improve" for c in cases)
 
     pinned = [c for c in cases if c.pinned]
     assert len(pinned) == 1
