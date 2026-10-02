@@ -14,18 +14,8 @@ Inputs:
     if it should actually be compared) -- see `n_visible` note below.
   cases: list of case-metadata dicts, each with at least
     {id, name, axis, pinned, hidden}. Visible = hidden == False.
-  policy: dict with `min_target_gain_pct` (float, v2 renamed from
-    `min_avg_improvement_pct` -- same meaning, same default 5.0), and
-    `max_regressions` (dict axis->int, missing axis defaults to 0 per
-    AC-EV-c row 5).
-
-Field-name note (v2 Phase 1, mechanical only): this function's own
-`hidden`/"visible" terminology and formula are UNCHANGED in this phase --
-the actual v2 verdict rewrite (target axis gain, benchmark gate, axis
-floors, cost limit) is a LATER phase (Phase 6). Callers now build the
-`cases` list's `hidden` key from `EvalCase.split == "benchmark"` instead of
-the removed `EvalCase.hidden` column (see `app/improver.py`), but the key
-name this function reads stays `hidden` until Phase 6 renames it too.
+  policy: dict with `min_avg_improvement_pct` (float), `max_regressions`
+    (dict axis->int, missing axis defaults to 0 per AC-EV-c row 5).
 """
 from __future__ import annotations
 
@@ -87,15 +77,15 @@ def compute_verdict(
 
     pinned_regressed = [c for c in regressed if c.get("pinned", False)]
 
-    min_target_gain_pct = policy.get("min_target_gain_pct", 0.0)
-    meets_min_improvement = avg_delta >= min_target_gain_pct
+    min_avg_improvement_pct = policy.get("min_avg_improvement_pct", 0.0)
+    meets_min_improvement = avg_delta >= min_avg_improvement_pct
     meets_policy = meets_min_improvement and not axis_breach and not pinned_regressed
 
     reasons: list[str] = []
     if not meets_min_improvement:
         reasons.append(
             f"avg_delta ({avg_delta:.1f} pts) is below the minimum improvement "
-            f"required ({min_target_gain_pct:.1f} pts)"
+            f"required ({min_avg_improvement_pct:.1f} pts)"
         )
     if axis_breach:
         for axis, n in axis_breach.items():

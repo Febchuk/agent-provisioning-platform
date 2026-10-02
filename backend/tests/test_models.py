@@ -1,26 +1,18 @@
-"""specs/specs-v2/specs/01-data-model.md §Verification — the three named
-invariant tests that still apply pre-v2-Phase-4, plus direct unit tests for
-DM-3 (guidelines uniqueness) since it's listed as an invariant but not given
-its own named test in the spec's Verification list.
-
-v1's DM-4 tests (`test_hidden_case_requires_parent_case_id`,
-`test_hidden_case_with_parent_case_id_succeeds`) are REMOVED in this v2
-Phase 1 cutover: `hidden`/`parent_case_id` and the invariant that validated
-them no longer exist (replaced by `split`/`origin`, enforced starting
-Phase 5 -- see DECISIONS.md).
-
-Two v2 skeleton tests are added at the bottom of this file for later
-phases' traceability (`test_signal_count_consistent` for Phase 7,
-`test_run_uses_deployed_version_and_emits_version_changed` for Phase 4).
+"""specs/01-data-model.md §Verification — the three named invariant tests,
+plus direct unit tests for DM-3 and DM-4 (guidelines uniqueness / hidden
+cases) since those are listed as invariants but not given their own named
+test in the spec's Verification list.
 """
 import pytest
 
 from app.models import AgentVersion
 from app.services import (
     DuplicateGuidelineIdError,
+    HiddenCaseMissingParentError,
     ImmutableVersionError,
     create_agent,
     create_conversation,
+    create_eval_case,
     create_version,
     deploy_version,
     version_for_next_turn,
@@ -49,17 +41,13 @@ def test_versions_immutable(session):
 # DM-2
 # ---------------------------------------------------------------------------
 def test_conversation_pins_version(session):
-    """DM-2 (v2: field renamed `version_id` -> `started_on_version_id`; this
-    phase still implements the OLD v1 "pinned" behavior with the renamed
-    field -- the real per-run resolution lands in Phase 4): deploy v2 after
-    a conversation started on v1; next turn still uses v1.
-    """
+    """DM-2: deploy v2 after a conversation started on v1; next turn still uses v1."""
     agent = create_agent(session, name="Revenue Analyst", slug="revenue-analyst-2")
     v1 = create_version(session, agent_id=agent.id, system_prompt="v1 prompt")
     deploy_version(session, agent_id=agent.id, version_id=v1.id)
 
     conversation = create_conversation(session, agent_id=agent.id, channel="share")
-    assert conversation.started_on_version_id == v1.id
+    assert conversation.version_id == v1.id
 
     v2 = create_version(session, agent_id=agent.id, system_prompt="v2 prompt", parent_version_id=v1.id)
     deploy_version(session, agent_id=agent.id, version_id=v2.id)
@@ -123,22 +111,40 @@ def test_guideline_ids_stable_across_versions_when_unchanged(session):
 
 
 # ---------------------------------------------------------------------------
-# v2 skeleton tests — traceability placeholders only, real logic lands in
-# the phase named in each docstring/skip reason.
+# DM-4 (hidden cases require parent_case_id)
 # ---------------------------------------------------------------------------
-@pytest.mark.skip(reason="implemented in v2 Phase 7 (signals and issues)")
-def test_signal_count_consistent():
-    """DM-6: `issues.signal_count` equals the number of signals with that
-    `issue_id`. Lands with the signals/issues subsystem (Phase 7).
-    """
+def test_hidden_case_requires_parent_case_id(session):
+    agent = create_agent(session, name="Case Agent", slug="case-agent")
+    with pytest.raises(HiddenCaseMissingParentError):
+        create_eval_case(
+            session,
+            agent_id=agent.id,
+            name="hidden sibling",
+            check_type="llm_judge",
+            check_spec={"rubric": "..."},
+            hidden=True,
+            parent_case_id=None,
+        )
 
 
-@pytest.mark.skip(reason="implemented in v2 Phase 4 (per-run version resolution)")
-def test_run_uses_deployed_version_and_emits_version_changed():
-    """DM-2 (rewritten): a run uses the agent's CURRENTLY DEPLOYED version
-    (not the conversation's `started_on_version_id`), recorded on
-    `runs.version_id` and the assistant message; a `version.changed {from,
-    to}` event is emitted when it differs from the conversation's previous
-    run. Replaces `test_conversation_pins_version` once this lands
-    (Phase 4).
-    """
+def test_hidden_case_with_parent_case_id_succeeds(session):
+    agent = create_agent(session, name="Case Agent 2", slug="case-agent-2")
+    parent = create_eval_case(
+        session,
+        agent_id=agent.id,
+        name="Q3 revenue excludes refunds",
+        check_type="contains",
+        check_spec={"all": ["412,380"], "none": []},
+        status="active",
+    )
+    sibling = create_eval_case(
+        session,
+        agent_id=agent.id,
+        name="Q3 revenue excludes refunds (sibling)",
+        check_type="llm_judge",
+        check_spec={"rubric": "Passes if refunds are excluded."},
+        hidden=True,
+        parent_case_id=parent.id,
+    )
+    assert sibling.hidden is True
+    assert sibling.parent_case_id == parent.id

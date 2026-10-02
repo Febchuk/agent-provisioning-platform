@@ -316,7 +316,7 @@ async def get_conversation(conversation_id: str) -> dict:
         return {
             "id": conversation.id,
             "agent_id": conversation.agent_id,
-            "started_on_version_id": conversation.started_on_version_id,
+            "version_id": conversation.version_id,
             "channel": conversation.channel,
             "created_at": conversation.created_at,
             "messages": [
@@ -520,9 +520,6 @@ class CreateCaseBody(BaseModel):
     axis: str = "accuracy"
     history: Optional[list[dict]] = None
     pinned: bool = False
-    split: str = "improve"
-    origin: str = "owner"
-    issue_id: Optional[str] = None
     from_feedback_id: Optional[str] = None
 
 
@@ -536,9 +533,8 @@ def _case_out(case: EvalCase) -> dict:
         "check_type": case.check_type,
         "check_spec": case.check_spec,
         "pinned": case.pinned,
-        "split": case.split,
-        "origin": case.origin,
-        "issue_id": case.issue_id,
+        "hidden": case.hidden,
+        "parent_case_id": case.parent_case_id,
         "from_feedback_id": case.from_feedback_id,
         "status": case.status,
     }
@@ -563,9 +559,7 @@ async def post_create_case(agent_id: str, body: CreateCaseBody) -> dict:
             axis=body.axis,
             history=body.history,
             pinned=body.pinned,
-            split=body.split,
-            origin=body.origin,
-            issue_id=body.issue_id,
+            hidden=False,
             from_feedback_id=body.from_feedback_id,
             status="active",
         )
@@ -653,7 +647,7 @@ async def get_agent_policy(agent_id: str) -> dict:
 
 
 class PutPolicyBody(BaseModel):
-    min_target_gain_pct: Optional[float] = None
+    min_avg_improvement_pct: Optional[float] = None
     max_regressions: Optional[dict] = None
     trials_per_case: Optional[int] = None
     pass_threshold: Optional[int] = None
@@ -668,7 +662,7 @@ async def put_agent_policy(agent_id: str, body: PutPolicyBody) -> dict:
         policy = evals.update_policy(
             session,
             agent_id,
-            min_target_gain_pct=body.min_target_gain_pct,
+            min_avg_improvement_pct=body.min_avg_improvement_pct,
             max_regressions=body.max_regressions,
             trials_per_case=body.trials_per_case,
             pass_threshold=body.pass_threshold,

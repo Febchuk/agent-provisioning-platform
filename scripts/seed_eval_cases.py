@@ -29,7 +29,6 @@ sys.path.insert(0, str(BACKEND_DIR))
 from sqlmodel import Session  # noqa: E402
 
 from app import db  # noqa: E402
-from app.evals import get_or_create_policy  # noqa: E402
 from app.seed_cases import build_seed_case_specs, seed_eval_cases  # noqa: E402
 from app.services import create_agent_from_template  # noqa: E402
 
@@ -39,20 +38,6 @@ def seed_demo_agent_with_cases(session: Session, *, name: str = "Revenue Analyst
         session, name=name, description="Analyzes orders.csv: revenue, refunds, top products.", template_id="data-analyst"
     )
     cases = seed_eval_cases(session, agent.id)
-
-    # v2 Phase 1: set cooldown_hours=0 (not the production default of 24) on
-    # this seeded demo agent's policy. The production default exists so a
-    # real agent doesn't get re-proposed against on every signal; a FRESH
-    # demo agent has no such history, and later phases' demo/e2e scripts
-    # (Phase 7+) need to be able to trigger improvement immediately without
-    # waiting out a cooldown that only makes sense once the agent already
-    # has a real accept/reject history. Easy to lose track of -- flagged
-    # here and in DECISIONS.md.
-    policy = get_or_create_policy(session, agent.id)
-    policy.cooldown_hours = 0
-    session.add(policy)
-    session.commit()
-
     return {"agent": agent, "cases": cases}
 
 
