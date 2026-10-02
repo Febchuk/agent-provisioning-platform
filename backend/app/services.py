@@ -1,19 +1,28 @@
-"""Minimal service-layer plumbing to prove the data-model invariants
-(specs/01-data-model.md, DM-1..DM-5).
+"""Service-layer functions.
 
-This is intentionally NOT the full CRUD/API surface from
-specs/03-chat-and-deploy.md — that's Phase 3 (T2.x). Only what's needed to
-create an agent, create versions, deploy, and create conversations/eval
-cases while enforcing the invariants below.
+Phase 1 (T0/`01-data-model.md`) added the core CRUD + invariant-enforcing
+functions: `create_agent`, `create_version`, `update_version` (always
+raises, DM-1), `deploy_version`, `create_conversation`,
+`version_for_next_turn`, `create_eval_case`.
+
+Phase 3 (T2.2/T2.3, `03-chat-and-deploy.md`) extends this module with the
+agent/version/deploy API's supporting logic: slug generation (CD-10),
+creating an agent from a template (CD-1), listing agents with their stats,
+and creating a version "from fields" for a manual edit (CD-2, reusing
+`create_version`). Conversation/message/run orchestration that needs
+background tasks and in-memory state lives in `app/chat_runtime.py` instead,
+to keep this module pure DB logic.
 """
 from __future__ import annotations
 
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.ids import new_id
-from app.models import Agent, AgentVersion, Conversation, EvalCase
+from app.models import Agent, AgentVersion, Conversation, EvalCase, Feedback, Message, Run
 
 
 class ImmutableVersionError(Exception):
@@ -220,3 +229,188 @@ def create_eval_case(
     session.commit()
     session.refresh(case)
     return case
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 (specs/03-chat-and-deploy.md): slugs, templates, agent listing,
+# version-from-fields, file uploads.
+# ---------------------------------------------------------------------------
+
+_SLUG_SANITIZE_RE = re.compile(r"[^a-z0-9]+")
+
+
+def slugify(name: str) -> str:
+    """CD-10: derive a URL-safe slug from a name (lowercase, hyphens,
+    alphanumerics only). Does not guarantee uniqueness by itself — see
+    `unique_slug`.
+    """
+    base = _SLUG_SANITIZE_RE.sub("-", name.strip().lower()).strip("-")
+    return base or "agent"
+
+
+def unique_slug(session: Session, name: str) -> str:
+    """CD-10: a slug derived from `name`, unique among existing agents.
+    Collisions are deduped by appending an incrementing counter
+    (`my-agent`, `my-agent-2`, `my-agent-3`, ...).
+    """
+    base = slugify(name)
+    candidate = base
+    counter = 1
+    while session.exec(select(Agent).where(Agent.slug == candidate)).first() is not None:
+        counter += 1
+        candidate = f"{base}-{counter}"
+    return candidate
+
+
+def create_agent_from_template(
+    session: Session,
+    *,
+    name: str,
+    description: str,
+    template_id: str,
+) -> Agent:
+    """CD-1: create an agent, create v1 from the named template (prompt,
+    tools, files), and deploy v1 automatically.
+    """
+    from app.files import store_template_file
+    from app.templates import get_template
+
+    template = get_template(template_id)
+
+    slug = unique_slug(session, name)
+    agent = create_agent(session, name=name, slug=slug, description=description)
+
+    files = [store_template_file(agent.id, f["name"], f["content"]) for f in template["files"]]
+
+    version = create_version(
+        session,
+        agent_id=agent.id,
+        system_prompt=template["system_prompt"],
+        tools=list(template["tools"]),
+        files=files,
+        source="created",
+        change_note=f"Created from template '{template_id}'",
+    )
+    deploy_version(session, agent_id=agent.id, version_id=version.id)
+    session.refresh(agent)
+    return agent
+
+
+def create_version_from_fields(
+    session: Session,
+    *,
+    agent_id: str,
+    system_prompt: Optional[str] = None,
+    guidelines: Optional[list[dict]] = None,
+    tools: Optional[list[str]] = None,
+    model: Optional[str] = None,
+    max_steps: Optional[int] = None,
+    tool_timeout_s: Optional[int] = None,
+    files: Optional[list[dict]] = None,
+    change_note: str = "",
+) -> AgentVersion:
+    """CD-2: create a new version from explicitly given fields (a manual
+    edit via `POST /agents/{id}/versions`), `source = "manual"`. Unspecified
+    fields are copied from the agent's current latest version (the natural
+    parent for a manual edit), per `create_version`'s DM-2/CD-2 copy
+    behavior. `number = max + 1` is handled by `create_version`.
+    """
+    agent = session.get(Agent, agent_id)
+    if agent is None:
+        raise ValueError(f"agent {agent_id!r} not found")
+
+    latest = session.exec(
+        select(AgentVersion).where(AgentVersion.agent_id == agent_id).order_by(AgentVersion.number.desc())
+    ).first()
+    parent_version_id = latest.id if latest else None
+
+    kwargs: dict = {"source": "manual", "change_note": change_note, "parent_version_id": parent_version_id}
+    if system_prompt is not None:
+        kwargs["system_prompt"] = system_prompt
+    if guidelines is not None:
+        kwargs["guidelines"] = guidelines
+    if tools is not None:
+        kwargs["tools"] = tools
+    if model is not None:
+        kwargs["model"] = model
+    if max_steps is not None:
+        kwargs["max_steps"] = max_steps
+    if tool_timeout_s is not None:
+        kwargs["tool_timeout_s"] = tool_timeout_s
+    if files is not None:
+        kwargs["files"] = files
+
+    return create_version(session, agent_id=agent_id, **kwargs)
+
+
+def get_agent_or_404(session: Session, agent_id: str) -> Optional[Agent]:
+    return session.get(Agent, agent_id)
+
+
+def get_agent_by_slug(session: Session, slug: str) -> Optional[Agent]:
+    return session.exec(select(Agent).where(Agent.slug == slug)).first()
+
+
+def list_agents_with_stats(session: Session) -> list[dict]:
+    """`GET /agents`: list with deployed version #, 7-day chat count, new
+    feedback count, latest eval score.
+
+    Chat count / feedback count / eval score are wired to the real tables
+    (`messages`/`runs`, `feedback`) where those exist already, and default to
+    0/null where the owning subsystem (evals, Phase 4) doesn't exist yet —
+    the field shape is correct and never crashes, per this phase's brief.
+    """
+    agents = session.exec(select(Agent).order_by(Agent.created_at.desc())).all()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    result = []
+    for agent in agents:
+        deployed_number = None
+        if agent.deployed_version_id:
+            deployed_version = session.get(AgentVersion, agent.deployed_version_id)
+            deployed_number = deployed_version.number if deployed_version else None
+
+        chat_count_7d = session.exec(
+            select(func.count(Run.id)).where(
+                Run.conversation_id.in_(
+                    select(Conversation.id).where(Conversation.agent_id == agent.id)
+                ),
+                Run.source == "chat",
+                Run.started_at >= cutoff,
+            )
+        ).one()
+
+        new_feedback_count = session.exec(
+            select(func.count(Feedback.id)).where(
+                Feedback.conversation_id.in_(
+                    select(Conversation.id).where(Conversation.agent_id == agent.id)
+                ),
+                Feedback.status == "new",
+            )
+        ).one()
+
+        result.append(
+            {
+                "id": agent.id,
+                "slug": agent.slug,
+                "name": agent.name,
+                "description": agent.description,
+                "deployed_version_number": deployed_number,
+                "chat_count_7d": chat_count_7d,
+                "new_feedback_count": new_feedback_count,
+                "latest_eval_score": None,  # eval subsystem lands in Phase 4 (M3)
+                "created_at": agent.created_at,
+            }
+        )
+    return result
+
+
+def get_conversation_messages(session: Session, conversation_id: str) -> list[Message]:
+    return session.exec(
+        select(Message).where(Message.conversation_id == conversation_id).order_by(Message.seq)
+    ).all()
+
+
+def get_conversation_runs(session: Session, conversation_id: str) -> list[Run]:
+    return session.exec(
+        select(Run).where(Run.conversation_id == conversation_id).order_by(Run.started_at)
+    ).all()
