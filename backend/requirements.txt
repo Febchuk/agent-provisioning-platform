@@ -5,3 +5,5 @@ pytest
 pytest-asyncio
 httpx
 openai
+python-dotenv
+docker
