@@ -7,3 +7,4 @@ httpx
 openai
 python-dotenv
 docker
+python-multipart
