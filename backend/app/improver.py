@@ -549,12 +549,22 @@ async def run_proposal_pipeline(
             select(EvalCase).where(EvalCase.agent_id == agent_id, EvalCase.status == "active")
         ).all()
         case_dicts = [
-            {"id": c.id, "name": c.name, "axis": c.axis, "pinned": c.pinned, "hidden": c.hidden} for c in all_cases
+            {
+                "id": c.id,
+                "name": c.name,
+                "axis": c.axis,
+                "pinned": c.pinned,
+                # v2: verdict.py's `hidden` key is built from the new
+                # `split` column now that `EvalCase.hidden` is gone (see
+                # app/verdict.py's field-name note).
+                "hidden": c.split == "benchmark",
+            }
+            for c in all_cases
         ]
         base_results = case_pass_map(session, base_eval_run.id)
         cand_results = case_pass_map(session, cand_eval_run.id)
         policy_dict = {
-            "min_avg_improvement_pct": policy.min_avg_improvement_pct,
+            "min_target_gain_pct": policy.min_target_gain_pct,
             "max_regressions": policy.max_regressions,
         }
         verdict = compute_verdict(base_results, cand_results, case_dicts, policy_dict)

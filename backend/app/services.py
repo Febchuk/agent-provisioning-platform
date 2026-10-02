@@ -33,10 +33,6 @@ class DuplicateGuidelineIdError(Exception):
     """Raised when a version's guidelines contain duplicate ids (DM-3)."""
 
 
-class HiddenCaseMissingParentError(Exception):
-    """Raised when a hidden eval case has no parent_case_id (DM-4)."""
-
-
 def create_agent(session: Session, *, name: str, slug: str, description: str = "") -> Agent:
     agent = Agent(id=new_id("ag"), slug=slug, name=name, description=description)
     session.add(agent)
@@ -157,9 +153,14 @@ def deploy_version(session: Session, *, agent_id: str, version_id: str) -> Agent
 
 
 def create_conversation(session: Session, *, agent_id: str, channel: str = "share") -> Conversation:
-    """DM-2: pin the conversation to the agent's CURRENT deployed version at
-    creation time. A later deploy() call changes `agents.deployed_version_id`
-    but never touches this conversation's `version_id`.
+    """v2 DM-2: record the agent's CURRENT deployed version at creation time
+    on `started_on_version_id`. Per v2, this field is now informational only
+    ("version at creation") -- it is NOT the authoritative source for which
+    version answers a given run. That behavior change (resolve the deployed
+    version per run, emit `version.changed`) is a LATER phase (Phase 4).
+    Until then, this function and `version_for_next_turn` still implement
+    the OLD v1 "pinned" behavior using the renamed field, so nothing else in
+    this phase's code needs to change behavior.
     """
     agent = session.get(Agent, agent_id)
     if agent is None:
@@ -170,7 +171,7 @@ def create_conversation(session: Session, *, agent_id: str, channel: str = "shar
     conversation = Conversation(
         id=new_id("conv"),
         agent_id=agent_id,
-        version_id=agent.deployed_version_id,
+        started_on_version_id=agent.deployed_version_id,
         channel=channel,
     )
     session.add(conversation)
@@ -180,14 +181,20 @@ def create_conversation(session: Session, *, agent_id: str, channel: str = "shar
 
 
 def version_for_next_turn(session: Session, *, conversation_id: str) -> AgentVersion:
-    """What the runner would load for the next turn in this conversation:
-    always the conversation's pinned version, never the agent's current
-    deployed version (DM-2).
+    """What the runner would load for the next turn in this conversation.
+
+    THIS IS THE LAST PHASE where this function implements the OLD v1
+    "pinned" behavior: it still always returns the conversation's
+    `started_on_version_id`, never the agent's current deployed version.
+    Per v2 DM-2 (rewritten), the real behavior -- resolve the agent's
+    CURRENTLY DEPLOYED version per run, record it on `runs.version_id` and
+    the assistant message, and emit `version.changed` when it differs from
+    the conversation's previous run -- lands in a LATER phase (Phase 4).
     """
     conversation = session.get(Conversation, conversation_id)
     if conversation is None:
         raise ValueError(f"conversation {conversation_id!r} not found")
-    version = session.get(AgentVersion, conversation.version_id)
+    version = session.get(AgentVersion, conversation.started_on_version_id)
     assert version is not None
     return version
 
@@ -202,15 +209,18 @@ def create_eval_case(
     axis: str = "accuracy",
     history: Optional[list[dict]] = None,
     pinned: bool = False,
-    hidden: bool = False,
-    parent_case_id: Optional[str] = None,
+    split: str = "improve",
+    origin: str = "owner",
+    issue_id: Optional[str] = None,
     from_feedback_id: Optional[str] = None,
     status: str = "draft",
 ) -> EvalCase:
-    """DM-4: a case with hidden=True must always have parent_case_id."""
-    if hidden and not parent_case_id:
-        raise HiddenCaseMissingParentError("hidden eval cases must have a parent_case_id")
-
+    """v2: `hidden`/`parent_case_id` (and the DM-4 invariant that validated
+    them) are removed. `split`/`origin`/`issue_id` replace them; no
+    validation on these fields is needed yet -- `split = benchmark` cases
+    being excluded from `cases_for_improver()` is an ENFORCEMENT concern for
+    a later phase (Phase 5), not a constructor-time validation here.
+    """
     case = EvalCase(
         id=new_id("case"),
         agent_id=agent_id,
@@ -220,8 +230,9 @@ def create_eval_case(
         check_type=check_type,
         check_spec=check_spec,
         pinned=pinned,
-        hidden=hidden,
-        parent_case_id=parent_case_id,
+        split=split,
+        origin=origin,
+        issue_id=issue_id,
         from_feedback_id=from_feedback_id,
         status=status,
     )
@@ -377,17 +388,22 @@ def patch_eval_case(
 
 
 def list_cases_with_latest_results(session: Session, agent_id: str) -> list[dict]:
-    """`GET /agents/{id}/cases`: visible (non-hidden) cases + latest results
+    """`GET /agents/{id}/cases`: all of the agent's cases + latest results
     on the agent's currently deployed version. "Latest results" = the most
     recent eval_run for the deployed version that has a result for this
     case, if any.
+
+    v2 note: v1 filtered to "visible (non-hidden)" cases here via the old
+    `hidden` column. That column is gone; this phase does not add a
+    `split`-based filter in its place (no spec requirement names one for
+    this endpoint, and inventing a new filter would be new behavior, out of
+    scope for a schema-only phase) -- this now lists every case for the
+    agent regardless of `split`.
     """
     agent = session.get(Agent, agent_id)
     deployed_version_id = agent.deployed_version_id if agent else None
 
-    cases = session.exec(
-        select(EvalCase).where(EvalCase.agent_id == agent_id, EvalCase.hidden == False)  # noqa: E712
-    ).all()
+    cases = session.exec(select(EvalCase).where(EvalCase.agent_id == agent_id)).all()
 
     latest_eval_run = None
     if deployed_version_id:

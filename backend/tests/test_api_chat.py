@@ -93,7 +93,7 @@ async def test_deploy_new_version_does_not_move_existing_conversation(app_client
 
     conv_detail = await app_client.get(f"/conversations/{conversation_id}")
     assert conv_detail.status_code == 200
-    assert conv_detail.json()["version_id"] != v2["id"]
+    assert conv_detail.json()["started_on_version_id"] != v2["id"]
 
 
 # ---------------------------------------------------------------------------

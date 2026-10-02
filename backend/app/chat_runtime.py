@@ -94,7 +94,8 @@ llm_factory: "callable" = _llm_factory
 async def get_or_create_sandbox(conversation: Conversation, version: AgentVersion) -> Sandbox:
     """SB-1: one sandbox per conversation, created on first use and seeded
     from `version.files` (the files belonging to the version the
-    conversation is pinned to, per DM-2).
+    conversation started on, per v2 DM-2 -- still the pinned version in this
+    phase; see `services.version_for_next_turn`).
     """
     existing = _sandboxes.get(conversation.id)
     if existing is not None:
@@ -140,7 +141,7 @@ def start_turn(
         conversation = session.get(Conversation, conversation_id)
         if conversation is None:
             raise ValueError(f"conversation {conversation_id!r} not found")
-        version = session.get(AgentVersion, conversation.version_id)
+        version = session.get(AgentVersion, conversation.started_on_version_id)
         assert version is not None
 
         run = Run(id=new_id("run"), conversation_id=conversation_id, version_id=version.id, source="chat")
@@ -205,7 +206,7 @@ async def _execute_turn(conversation_id: str, run_id: str, llm: LLM) -> None:
     try:
         with Session(db.engine) as session:
             conversation = session.get(Conversation, conversation_id)
-            version = session.get(AgentVersion, conversation.version_id)
+            version = session.get(AgentVersion, conversation.started_on_version_id)
             history = _history_for_conversation(session, conversation_id)
 
         sandbox = await get_or_create_sandbox(conversation, version)
