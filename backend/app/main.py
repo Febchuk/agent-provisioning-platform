@@ -16,11 +16,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app import chat_runtime, db, evals, services
+from app import chat_runtime, db, evals, improver, services
 from app.db import init_db
 from app.files import store_file
-from app.llm import LLM, OpenAICompatLLM
-from app.models import AgentVersion, Conversation, EvalCase, Feedback, Run
+from app.llm import LLM, OpenAICompatLLM, improver_model_name
+from app.models import AgentVersion, Conversation, EvalCase, Feedback, Proposal, Run
 from app.sandbox import DockerSandbox, LocalSandbox, Sandbox, docker_available
 from app.templates import list_templates
 
@@ -653,3 +653,85 @@ async def put_agent_policy(agent_id: str, body: PutPolicyBody) -> dict:
             pass_threshold=body.pass_threshold,
         )
         return evals.policy_to_dict(policy)
+
+
+# ---------------------------------------------------------------------------
+# Improver / proposals (specs/05-improver.md T4.4)
+# ---------------------------------------------------------------------------
+def _improver_llm_factory() -> LLM:
+    return OpenAICompatLLM()
+
+
+# Overridable by tests, same pattern as eval_sandbox_factory/eval_llm_factory.
+improver_llm_factory: "callable" = _improver_llm_factory
+
+
+@app.post("/agents/{agent_id}/proposals", status_code=201)
+async def post_create_proposal(agent_id: str) -> dict:
+    """IM-1: start the improver pipeline against the agent's DEPLOYED version.
+    Runs the pipeline inline (awaited) rather than backgrounding it -- a
+    proposal run is a handful of eval trials plus one LLM call, not an
+    open-ended chat conversation, so there's no SSE/streaming requirement for
+    it (specs/05's endpoint table has no "subscribe to proposal progress"
+    endpoint, unlike chat's CD-7).
+    """
+    with Session(db.engine) as session:
+        agent = services.get_agent_or_404(session, agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        if agent.deployed_version_id is None:
+            raise HTTPException(status_code=400, detail="agent has no deployed version")
+
+        proposal = improver.create_proposal(session, agent_id=agent_id, base_version_id=agent.deployed_version_id)
+        proposal_id = proposal.id
+
+    judge_model = os.environ.get("JUDGE_MODEL_NAME")
+    with Session(db.engine) as session:
+        await improver.run_proposal_pipeline(
+            session,
+            agent_id=agent_id,
+            proposal_id=proposal_id,
+            sandbox_factory=eval_sandbox_factory,
+            llm_factory=eval_llm_factory,
+            improver_llm_factory=improver_llm_factory,
+            judge_model=judge_model,
+            improver_model=improver_model_name(),
+        )
+
+    return {"proposal_id": proposal_id}
+
+
+@app.get("/proposals/{proposal_id}")
+async def get_proposal(proposal_id: str) -> dict:
+    with Session(db.engine) as session:
+        proposal = session.get(Proposal, proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="proposal not found")
+        return improver.proposal_to_dict(session, proposal)
+
+
+class AcceptProposalBody(BaseModel):
+    deploy: bool = False
+    note: Optional[str] = None
+
+
+@app.post("/proposals/{proposal_id}/accept")
+async def post_accept_proposal(proposal_id: str, body: AcceptProposalBody) -> dict:
+    with Session(db.engine) as session:
+        try:
+            proposal = improver.accept_proposal(session, proposal_id=proposal_id, deploy=body.deploy, note=body.note)
+        except improver.ProposalAcceptError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        return improver.proposal_to_dict(session, proposal)
+
+
+@app.post("/proposals/{proposal_id}/reject")
+async def post_reject_proposal(proposal_id: str) -> dict:
+    with Session(db.engine) as session:
+        try:
+            proposal = improver.reject_proposal(session, proposal_id=proposal_id)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        return improver.proposal_to_dict(session, proposal)

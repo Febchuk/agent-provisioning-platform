@@ -77,6 +77,23 @@ class ModelGatewayConfig:
         )
 
 
+def improver_model_name() -> Optional[str]:
+    """MG-1: `IMPROVER_MODEL_NAME` env var, read here (the gateway) and used
+    by the improver (specs/05) as a per-call `model=` override for its own
+    diagnose+propose LLM call -- falls back to `MODEL_NAME` (i.e. `model=None`
+    on the `chat()` call) when unset, same fallback convention
+    `JUDGE_MODEL_NAME` already uses at call sites (e.g. `main.py`'s
+    `judge_model = os.environ.get("JUDGE_MODEL_NAME")`, passed straight
+    through as `model=` to `OpenAICompatLLM.chat`, which falls back to
+    `self.config.model_name` when `model` is None).
+
+    Before this phase, `ModelGatewayConfig.improver_model_name` was read from
+    the env (MG-1) but never consumed anywhere as an actual model override --
+    this function is the first real use of it.
+    """
+    return ModelGatewayConfig.from_env().improver_model_name
+
+
 class OpenAICompatLLM:
     """Real `LLM` implementation using the OpenAI Python SDK against a
     configurable `base_url` (so any OpenAI-compatible endpoint, e.g. vLLM,
