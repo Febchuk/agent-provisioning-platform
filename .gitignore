@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Backend data
+backend/*.db
+backend/data/
+
+# Generated seed data (scripts/seed_demo.py)
+/orders.csv
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+.env
+.env.local
+
+# OS
+.DS_Store

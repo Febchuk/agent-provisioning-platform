@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+pytest
+pytest-asyncio
+httpx
+openai
