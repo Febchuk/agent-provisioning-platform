@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -39,6 +40,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Agent Provisioning Platform", lifespan=lifespan)
+
+# Phase 6 (frontend): the Next.js dev server runs on a different origin
+# (localhost:3000) than the API (127.0.0.1:8000), so without CORS headers
+# every browser fetch from the frontend is blocked before it reaches any
+# endpoint. Single local owner, no auth (specs/00 scope) -- wide-open origins
+# are acceptable here and match the rest of this phase's security posture.
+# Logged in DECISIONS.md as a backend gap found during Phase 6.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
