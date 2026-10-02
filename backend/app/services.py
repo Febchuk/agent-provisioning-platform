@@ -34,7 +34,12 @@ class DuplicateGuidelineIdError(Exception):
 
 
 class HiddenCaseMissingParentError(Exception):
-    """Raised when a hidden eval case has no parent_case_id (DM-4)."""
+    """Legacy v1 name, kept for import compatibility with any caller that
+    still references it; DM-4's hidden/parent_case_id invariant no longer
+    applies (v2 cherry-pick: `split`/`origin` replace `hidden`, and
+    `parent_case_id` is now an inert, unenforced column). Never raised by
+    `create_eval_case` anymore.
+    """
 
 
 def create_agent(session: Session, *, name: str, slug: str, description: str = "") -> Agent:
@@ -202,15 +207,17 @@ def create_eval_case(
     axis: str = "accuracy",
     history: Optional[list[dict]] = None,
     pinned: bool = False,
-    hidden: bool = False,
+    split: str = "improve",
+    origin: str = "feedback",
     parent_case_id: Optional[str] = None,
     from_feedback_id: Optional[str] = None,
     status: str = "draft",
 ) -> EvalCase:
-    """DM-4: a case with hidden=True must always have parent_case_id."""
-    if hidden and not parent_case_id:
-        raise HiddenCaseMissingParentError("hidden eval cases must have a parent_case_id")
-
+    """v2 cherry-pick: `split` ("improve" | "benchmark") replaces v1's
+    boolean `hidden`; `origin` ("feedback" | "ground_truth" | "variant") is
+    new. `parent_case_id` is accepted but inert (no invariant enforced on it
+    in this phase -- a later phase retires the column).
+    """
     case = EvalCase(
         id=new_id("case"),
         agent_id=agent_id,
@@ -220,7 +227,8 @@ def create_eval_case(
         check_type=check_type,
         check_spec=check_spec,
         pinned=pinned,
-        hidden=hidden,
+        split=split,
+        origin=origin,
         parent_case_id=parent_case_id,
         from_feedback_id=from_feedback_id,
         status=status,
@@ -350,12 +358,12 @@ def patch_eval_case(
     pinned: Optional[bool] = None,
     axis: Optional[str] = None,
     name: Optional[str] = None,
+    split: Optional[str] = None,
     status: Optional[str] = None,
 ) -> EvalCase:
-    """`PATCH /cases/{id}`: pinned, axis, name, status. Unlike
-    `agent_versions`, `eval_cases` rows ARE mutable (no DM-1-style invariant
-    applies to them) -- the spec's own endpoint table calls this out as a
-    normal PATCH.
+    """`PATCH /cases/{id}`: pinned, axis, name, split, status (v2 cherry-pick
+    adds `split` per the spec's endpoint table). Unlike `agent_versions`,
+    `eval_cases` rows ARE mutable (no DM-1-style invariant applies to them).
     """
     case = session.get(EvalCase, case_id)
     if case is None:
@@ -367,6 +375,8 @@ def patch_eval_case(
         case.axis = axis
     if name is not None:
         case.name = name
+    if split is not None:
+        case.split = split
     if status is not None:
         case.status = status
 
@@ -377,17 +387,16 @@ def patch_eval_case(
 
 
 def list_cases_with_latest_results(session: Session, agent_id: str) -> list[dict]:
-    """`GET /agents/{id}/cases`: visible (non-hidden) cases + latest results
-    on the agent's currently deployed version. "Latest results" = the most
-    recent eval_run for the deployed version that has a result for this
-    case, if any.
+    """`GET /agents/{id}/cases`: all cases (both splits -- the owner sees
+    everything; `split` only governs what the IMPROVER sees, via
+    `cases_for_improver`) + latest results on the agent's currently deployed
+    version. "Latest results" = the most recent eval_run for the deployed
+    version that has a result for this case, if any.
     """
     agent = session.get(Agent, agent_id)
     deployed_version_id = agent.deployed_version_id if agent else None
 
-    cases = session.exec(
-        select(EvalCase).where(EvalCase.agent_id == agent_id, EvalCase.hidden == False)  # noqa: E712
-    ).all()
+    cases = session.exec(select(EvalCase).where(EvalCase.agent_id == agent_id)).all()
 
     latest_eval_run = None
     if deployed_version_id:
@@ -415,6 +424,8 @@ def list_cases_with_latest_results(session: Session, agent_id: str) -> list[dict
                 "check_type": case.check_type,
                 "check_spec": case.check_spec,
                 "pinned": case.pinned,
+                "split": case.split,
+                "origin": case.origin,
                 "status": case.status,
                 "from_feedback_id": case.from_feedback_id,
                 "latest_result": (

@@ -6,10 +6,13 @@ corrected, even inside a longer conversation.
 AC-EV-b: trials [T, F, T], threshold 2 -> case passes AND is flaky.
 AC-EV-e: 8 cases x 3 trials -> never more than 4 sandboxes exist concurrently
 (a counting test-double sandbox factory, no real Docker).
-AC-EV-f: cases_for_improver() returns none of the hidden cases.
+AC-EV-f (v2 cherry-pick): cases_for_improver(agent, target_axis) never
+returns a benchmark-split case or a case from a different axis -- an
+example test plus a property-style test over randomly generated case sets.
 """
 import asyncio
 import json
+import random
 
 import pytest
 
@@ -398,32 +401,86 @@ async def test_run_eval_run_persists_results_and_respects_pass_threshold(session
 
 
 # ---------------------------------------------------------------------------
-# AC-EV-f / EV-11
+# AC-EV-f / EV-11 (v2 cherry-pick: split + target_axis)
 # ---------------------------------------------------------------------------
-def test_cases_for_improver_excludes_hidden(session):
+def test_cases_for_improver_excludes_benchmark_and_other_axis(session):
     agent = create_agent(session, name="Improver Cases Agent", slug="improver-cases-agent")
 
-    visible_active = create_eval_case(
-        session, agent_id=agent.id, name="visible active", check_type="contains", check_spec={"all": [], "none": []}, status="active"
+    target_active = create_eval_case(
+        session, agent_id=agent.id, name="target active improve", check_type="contains",
+        check_spec={"all": [], "none": []}, status="active", split="improve", axis="accuracy",
     )
-    visible_draft = create_eval_case(
-        session, agent_id=agent.id, name="visible draft", check_type="contains", check_spec={"all": [], "none": []}, status="draft"
+    target_draft = create_eval_case(
+        session, agent_id=agent.id, name="target draft improve", check_type="contains",
+        check_spec={"all": [], "none": []}, status="draft", split="improve", axis="accuracy",
     )
-    hidden_sibling = create_eval_case(
-        session,
-        agent_id=agent.id,
-        name="hidden sibling",
-        check_type="llm_judge",
-        check_spec={"rubric": "x"},
-        hidden=True,
-        parent_case_id=visible_active.id,
-        status="active",
+    benchmark_case = create_eval_case(
+        session, agent_id=agent.id, name="benchmark case", check_type="llm_judge",
+        check_spec={"rubric": "x"}, status="active", split="benchmark", axis="accuracy",
+    )
+    other_axis_case = create_eval_case(
+        session, agent_id=agent.id, name="other axis improve", check_type="contains",
+        check_spec={"all": [], "none": []}, status="active", split="improve", axis="format",
     )
 
-    result = cases_for_improver(session, agent.id)
+    result = cases_for_improver(session, agent.id, target_axis="accuracy")
     result_ids = {c.id for c in result}
 
-    assert visible_active.id in result_ids
-    assert visible_draft.id not in result_ids  # not active
-    assert hidden_sibling.id not in result_ids  # EV-11: hidden excluded
-    assert all(not c.hidden for c in result)
+    assert target_active.id in result_ids
+    assert target_draft.id not in result_ids  # not active
+    assert benchmark_case.id not in result_ids  # EV-11: benchmark split excluded
+    assert other_axis_case.id not in result_ids  # EV-11: different axis excluded
+    assert all(c.split == "improve" for c in result)
+    assert all(c.axis == "accuracy" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# Property-style test: generate varied random case sets and assert the
+# invariant (never benchmark, never a different axis) holds across all of
+# them -- not just the one hand-picked example above.
+# ---------------------------------------------------------------------------
+def test_cases_for_improver_property_never_returns_benchmark_or_other_axis(session):
+    agent = create_agent(session, name="Improver Property Agent", slug="improver-property-agent")
+
+    axes = ["accuracy", "format", "safety", "tool-use"]
+    splits = ["improve", "benchmark"]
+    statuses = ["draft", "active", "dismissed"]
+
+    rng = random.Random(1234)  # deterministic across runs
+    all_created = []
+    for i in range(200):
+        axis = rng.choice(axes)
+        split = rng.choice(splits)
+        status = rng.choice(statuses)
+        case = create_eval_case(
+            session,
+            agent_id=agent.id,
+            name=f"case-{i}",
+            check_type="contains",
+            check_spec={"all": [], "none": []},
+            axis=axis,
+            split=split,
+            status=status,
+        )
+        all_created.append((case, axis, split, status))
+
+    for target_axis in axes:
+        result = cases_for_improver(session, agent.id, target_axis=target_axis)
+        result_ids = {c.id for c in result}
+
+        # Invariant: every returned case is active, split=="improve", axis==target_axis.
+        assert all(c.status == "active" for c in result)
+        assert all(c.split == "improve" for c in result)
+        assert all(c.axis == target_axis for c in result)
+
+        # Cross-check against the ground truth of what SHOULD have been returned.
+        expected_ids = {
+            case.id for case, axis, split, status in all_created
+            if axis == target_axis and split == "improve" and status == "active"
+        }
+        assert result_ids == expected_ids
+
+        # Explicitly assert no benchmark case or other-axis case ever leaked in.
+        for case, axis, split, status in all_created:
+            if split == "benchmark" or axis != target_axis:
+                assert case.id not in result_ids

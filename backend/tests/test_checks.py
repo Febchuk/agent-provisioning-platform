@@ -8,7 +8,14 @@ import json
 
 import pytest
 
-from app.checks import FINAL_ANSWER_SANDBOX_PATH, check_contains, check_llm_judge, check_python_assert, run_check
+from app.checks import (
+    FINAL_ANSWER_SANDBOX_PATH,
+    check_contains,
+    check_llm_judge,
+    check_numeric,
+    check_python_assert,
+    run_check,
+)
 from app.llm import ChatResponse, FakeLLM
 from app.sandbox import LocalSandbox
 
@@ -181,3 +188,79 @@ async def test_run_check_unknown_type_fails_without_raising():
 async def test_run_check_dispatches_contains():
     result = await run_check("contains", "the answer is 42", {"all": ["42"], "none": []})
     assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# numeric (v2 cherry-pick, AC-EV-g)
+# ---------------------------------------------------------------------------
+async def test_numeric_pass_within_abs_tol():
+    spec = {"expected": 412380.0, "abs_tol": 1, "rel_tol": 0.001}
+    result = await check_numeric("Total revenue was $412,380 this quarter.", spec)
+    assert result.passed is True
+
+
+async def test_numeric_fail_outside_tolerance():
+    # AC-EV-g literal example: expected 412380, abs_tol 1 (no rel_tol) ->
+    # "$412,000" fails (380 off, well outside abs_tol=1).
+    spec = {"expected": 412380.0, "abs_tol": 1}
+    result = await check_numeric("Total revenue was $412,000 this quarter.", spec)
+    assert result.passed is False
+
+
+async def test_numeric_fail_no_numeric_claim():
+    spec = {"expected": 412380.0, "abs_tol": 1}
+    result = await check_numeric("I cannot determine the revenue.", spec)
+    assert result.passed is False
+    assert "no numeric claim" in result.reason.lower()
+
+
+async def test_numeric_passes_within_rel_tol_even_if_abs_tol_fails():
+    spec = {"expected": 1000.0, "abs_tol": 1, "rel_tol": 0.01}  # 1% of 1000 = 10
+    result = await check_numeric("The total is 1008.", spec)
+    assert result.passed is True
+
+
+async def test_numeric_missing_expected_fails_gracefully():
+    result = await check_numeric("412380", {})
+    assert result.passed is False
+
+
+# ---------------------------------------------------------------------------
+# all_of composition
+# ---------------------------------------------------------------------------
+async def test_all_of_passes_when_all_sub_checks_pass():
+    spec = {
+        "all_of": [
+            {"check_type": "numeric", "check_spec": {"expected": 412380.0, "abs_tol": 1}},
+            {"check_type": "contains", "check_spec": {"all": ["revenue"], "none": []}},
+        ]
+    }
+    result = await run_check("all_of", "Total revenue was $412,380.", spec)
+    assert result.passed is True
+
+
+async def test_all_of_fails_if_numeric_sub_check_fails():
+    spec = {
+        "all_of": [
+            {"check_type": "numeric", "check_spec": {"expected": 412380.0, "abs_tol": 1}},
+            {"check_type": "contains", "check_spec": {"all": ["revenue"], "none": []}},
+        ]
+    }
+    result = await run_check("all_of", "Total revenue was $412,000.", spec)
+    assert result.passed is False
+
+
+async def test_all_of_fails_if_contains_sub_check_fails():
+    spec = {
+        "all_of": [
+            {"check_type": "numeric", "check_spec": {"expected": 412380.0, "abs_tol": 1}},
+            {"check_type": "contains", "check_spec": {"all": ["excludes refunds"], "none": []}},
+        ]
+    }
+    result = await run_check("all_of", "Total revenue was $412,380, no mention of refunds.", spec)
+    assert result.passed is False
+
+
+async def test_all_of_empty_list_fails():
+    result = await run_check("all_of", "anything", {"all_of": []})
+    assert result.passed is False

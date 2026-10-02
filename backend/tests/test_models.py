@@ -1,14 +1,20 @@
 """specs/01-data-model.md §Verification — the three named invariant tests,
-plus direct unit tests for DM-3 and DM-4 (guidelines uniqueness / hidden
-cases) since those are listed as invariants but not given their own named
-test in the spec's Verification list.
+plus direct unit tests for DM-3 (guidelines uniqueness) since it's listed as
+an invariant but not given its own named test in the spec's Verification
+list.
+
+DM-4 (v1: "hidden=True eval_cases always have parent_case_id") no longer
+applies after the v2 cherry-pick verdict rewrite: `hidden` was replaced by
+`split`/`origin`, and `parent_case_id` is now an inert column with no
+invariant enforced on it (a later phase retires it). See
+test_split_and_origin_default_and_can_be_set below for v2 coverage of the
+replacement fields.
 """
 import pytest
 
 from app.models import AgentVersion
 from app.services import (
     DuplicateGuidelineIdError,
-    HiddenCaseMissingParentError,
     ImmutableVersionError,
     create_agent,
     create_conversation,
@@ -111,40 +117,47 @@ def test_guideline_ids_stable_across_versions_when_unchanged(session):
 
 
 # ---------------------------------------------------------------------------
-# DM-4 (hidden cases require parent_case_id)
+# v2 cherry-pick: split/origin replace hidden; parent_case_id is inert
 # ---------------------------------------------------------------------------
-def test_hidden_case_requires_parent_case_id(session):
+def test_split_and_origin_default_and_can_be_set(session):
     agent = create_agent(session, name="Case Agent", slug="case-agent")
-    with pytest.raises(HiddenCaseMissingParentError):
-        create_eval_case(
-            session,
-            agent_id=agent.id,
-            name="hidden sibling",
-            check_type="llm_judge",
-            check_spec={"rubric": "..."},
-            hidden=True,
-            parent_case_id=None,
-        )
-
-
-def test_hidden_case_with_parent_case_id_succeeds(session):
-    agent = create_agent(session, name="Case Agent 2", slug="case-agent-2")
-    parent = create_eval_case(
+    default_case = create_eval_case(
         session,
         agent_id=agent.id,
-        name="Q3 revenue excludes refunds",
+        name="default split/origin",
+        check_type="llm_judge",
+        check_spec={"rubric": "..."},
+    )
+    assert default_case.split == "improve"
+    assert default_case.origin == "feedback"
+
+    bench_case = create_eval_case(
+        session,
+        agent_id=agent.id,
+        name="benchmark case",
         check_type="contains",
         check_spec={"all": ["412,380"], "none": []},
-        status="active",
+        split="benchmark",
+        origin="ground_truth",
     )
-    sibling = create_eval_case(
+    assert bench_case.split == "benchmark"
+    assert bench_case.origin == "ground_truth"
+
+
+def test_parent_case_id_is_inert_no_invariant_enforced(session):
+    """v1's DM-4 (hidden=True requires parent_case_id) no longer applies --
+    a benchmark-split case with no parent_case_id at all must succeed (it
+    would have raised in v1).
+    """
+    agent = create_agent(session, name="Case Agent 2", slug="case-agent-2")
+    case = create_eval_case(
         session,
         agent_id=agent.id,
-        name="Q3 revenue excludes refunds (sibling)",
+        name="Q3 revenue excludes refunds (benchmark)",
         check_type="llm_judge",
         check_spec={"rubric": "Passes if refunds are excluded."},
-        hidden=True,
-        parent_case_id=parent.id,
+        split="benchmark",
+        parent_case_id=None,
     )
-    assert sibling.hidden is True
-    assert sibling.parent_case_id == parent.id
+    assert case.split == "benchmark"
+    assert case.parent_case_id is None

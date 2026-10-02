@@ -133,6 +133,7 @@ export default function ImprovePage({ params }: { params: Promise<{ id: string }
 
           {proposal.status !== "running" ? (
             <>
+              <PolicyChangedBanner proposal={proposal} />
               <ScoreStrip proposal={proposal} />
               {proposal.verdict ? <VerdictBanner verdict={proposal.verdict} /> : (
                 <p className="text-sm text-gray-500">No candidate was produced (no ops, or all ops were lint-rejected).</p>
@@ -195,19 +196,19 @@ export default function ImprovePage({ params }: { params: Promise<{ id: string }
 function ScoreStrip({ proposal }: { proposal: Proposal }) {
   const base = proposal.base_eval_run;
   const cand = proposal.cand_eval_run;
-  const baseScore = proposal.verdict?.base_score;
-  const candScore = proposal.verdict?.cand_score;
+  const baseScore = proposal.verdict?.overall?.base;
+  const candScore = proposal.verdict?.overall?.cand;
   return (
-    <div className="flex gap-6 rounded border p-3 text-sm">
+    <div className="flex flex-wrap gap-6 rounded border p-3 text-sm">
       <div>
-        <div className="text-gray-500">Base version score</div>
+        <div className="text-gray-500">Base version score (overall)</div>
         <div className="text-xl font-semibold">
           {baseScore !== undefined ? `${baseScore.toFixed(1)}%` : "--"}
         </div>
         {base ? <div className="text-xs text-gray-400">eval run {base.id}</div> : null}
       </div>
       <div>
-        <div className="text-gray-500">Candidate score</div>
+        <div className="text-gray-500">Candidate score (overall)</div>
         <div className="text-xl font-semibold">
           {candScore !== undefined ? `${candScore.toFixed(1)}%` : "--"}
         </div>
@@ -215,10 +216,46 @@ function ScoreStrip({ proposal }: { proposal: Proposal }) {
       </div>
       {proposal.verdict ? (
         <div>
-          <div className="text-gray-500">Avg delta</div>
-          <div className="text-xl font-semibold">{proposal.verdict.avg_delta.toFixed(1)} pts</div>
+          <div className="text-gray-500">Target gain ({proposal.verdict.target_axis})</div>
+          <div className="text-xl font-semibold">{proposal.verdict.target_gain.toFixed(1)} pts</div>
         </div>
       ) : null}
+      {proposal.verdict?.bench_target_delta !== null && proposal.verdict?.bench_target_delta !== undefined ? (
+        <div>
+          <div className="text-gray-500">Benchmark delta ({proposal.verdict.target_axis})</div>
+          <div className="text-xl font-semibold">{proposal.verdict.bench_target_delta.toFixed(1)} pts</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PolicyChangedBanner({ proposal }: { proposal: Proposal }) {
+  const diff = proposal.policy_diff;
+  if (!diff || Object.keys(diff).length === 0) return null;
+
+  const FIELD_LABELS: Record<string, string> = {
+    min_target_gain_pct: "min gain",
+    max_regressions: "max regressions",
+    axis_floors: "axis floors",
+    max_cost_increase_pct: "max cost increase",
+    min_signals: "min signals",
+    cooldown_hours: "cooldown hours",
+    max_open_proposals: "max open proposals",
+    trials_per_case: "trials per case",
+    pass_threshold: "pass threshold",
+  };
+
+  const parts = Object.entries(diff).map(([field, { from, to }]) => {
+    const label = FIELD_LABELS[field] ?? field;
+    const fmt = (v: unknown) => (typeof v === "object" ? JSON.stringify(v) : String(v));
+    return `${label} ${fmt(from)} → ${fmt(to)}`;
+  });
+
+  return (
+    <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+      <span className="font-medium">Policy changed after evaluation</span> ({parts.join(", ")}). The verdict below was
+      computed against the policy at evaluation time and has not been recalculated.
     </div>
   );
 }
@@ -239,6 +276,13 @@ function VerdictBanner({ verdict }: { verdict: NonNullable<Proposal["verdict"]> 
         <ul className="mt-2 list-inside list-disc text-sm text-gray-700">
           {verdict.reasons.map((r, i) => (
             <li key={i}>{r}</li>
+          ))}
+        </ul>
+      ) : null}
+      {verdict.warnings.length > 0 ? (
+        <ul className="mt-2 list-inside list-disc text-sm text-amber-700">
+          {verdict.warnings.map((w, i) => (
+            <li key={i}>{w}</li>
           ))}
         </ul>
       ) : null}
@@ -326,6 +370,7 @@ function Reasoning({ proposal }: { proposal: Proposal }) {
 }
 
 function CaseMatrix({ verdict }: { verdict: NonNullable<Proposal["verdict"]> }) {
+  const benchmark = verdict.by_split?.benchmark;
   return (
     <div className="rounded border p-3">
       <h3 className="mb-2 text-sm font-semibold">Case-by-case results</h3>
@@ -334,10 +379,11 @@ function CaseMatrix({ verdict }: { verdict: NonNullable<Proposal["verdict"]> }) 
         <CaseGroup title="Regressed" cases={verdict.regressed} tone="red" />
         <CaseGroup title="Unchanged" cases={verdict.unchanged} tone="gray" />
       </div>
-      {verdict.generalization.total > 0 ? (
+      {benchmark && (benchmark.base !== null || benchmark.cand !== null) ? (
         <div className="mt-3 text-xs text-gray-500">
-          Generalization (hidden cases): base {verdict.generalization.base} / cand{" "}
-          {verdict.generalization.cand} of {verdict.generalization.total}
+          Generalization (benchmark-split cases): base {benchmark.base?.toFixed(1) ?? "--"}% / cand{" "}
+          {benchmark.cand?.toFixed(1) ?? "--"}%
+          {verdict.bench_target_delta !== null ? ` (target-axis delta ${verdict.bench_target_delta.toFixed(1)} pts)` : ""}
         </div>
       ) : null}
     </div>

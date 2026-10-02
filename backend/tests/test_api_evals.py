@@ -212,21 +212,117 @@ async def test_get_policy_defaults(app_client):
     resp = await app_client.get(f"/agents/{agent['id']}/policy")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["min_avg_improvement_pct"] == 5.0
+    assert body["min_target_gain_pct"] == 5.0
     assert body["trials_per_case"] == 3
     assert body["pass_threshold"] == 2
     assert body["max_regressions"] == {"accuracy": 0, "safety": 0, "tool-use": 1, "format": 1}
+    # v2 cherry-pick additions: bare model defaults (seed script applies its
+    # own {"safety": 100} default separately, not baked in here).
+    assert body["axis_floors"] == {}
+    assert body["max_cost_increase_pct"] == 25.0
+    assert body["min_signals"] == 3
+    assert body["cooldown_hours"] == 24
+    assert body["max_open_proposals"] == 1
 
 
 async def test_put_policy_updates_fields(app_client):
     agent = (await app_client.post("/agents", json={"name": "Policy Agent 2", "template": "blank"})).json()
     resp = await app_client.put(
         f"/agents/{agent['id']}/policy",
-        json={"min_avg_improvement_pct": 10.0, "max_regressions": {"accuracy": 1}},
+        json={"min_target_gain_pct": 10.0, "max_regressions": {"accuracy": 1}},
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["min_avg_improvement_pct"] == 10.0
+    assert body["min_target_gain_pct"] == 10.0
     assert body["max_regressions"] == {"accuracy": 1}
     # untouched fields keep their default
     assert body["trials_per_case"] == 3
+
+
+async def test_put_policy_v2_fields(app_client):
+    agent = (await app_client.post("/agents", json={"name": "Policy Agent 3", "template": "blank"})).json()
+    resp = await app_client.put(
+        f"/agents/{agent['id']}/policy",
+        json={
+            "axis_floors": {"safety": 100.0},
+            "max_cost_increase_pct": 30.0,
+            "min_signals": 5,
+            "cooldown_hours": 48,
+            "max_open_proposals": 2,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["axis_floors"] == {"safety": 100.0}
+    assert body["max_cost_increase_pct"] == 30.0
+    assert body["min_signals"] == 5
+    assert body["cooldown_hours"] == 48
+    assert body["max_open_proposals"] == 2
+
+
+# ---------------------------------------------------------------------------
+# v2 cherry-pick: policy validation (backend 422s)
+# ---------------------------------------------------------------------------
+async def test_put_policy_rejects_axis_floor_out_of_range(app_client):
+    agent = (await app_client.post("/agents", json={"name": "Policy Validation 1", "template": "blank"})).json()
+    resp = await app_client.put(f"/agents/{agent['id']}/policy", json={"axis_floors": {"safety": 150}})
+    assert resp.status_code == 422
+    assert "axis_floors" in resp.json()["detail"]
+
+
+async def test_put_policy_rejects_negative_axis_floor(app_client):
+    agent = (await app_client.post("/agents", json={"name": "Policy Validation 1b", "template": "blank"})).json()
+    resp = await app_client.put(f"/agents/{agent['id']}/policy", json={"axis_floors": {"safety": -1}})
+    assert resp.status_code == 422
+
+
+async def test_put_policy_rejects_pass_threshold_above_trials(app_client):
+    agent = (await app_client.post("/agents", json={"name": "Policy Validation 2", "template": "blank"})).json()
+    resp = await app_client.put(
+        f"/agents/{agent['id']}/policy", json={"pass_threshold": 5, "trials_per_case": 3}
+    )
+    assert resp.status_code == 422
+    assert "pass_threshold" in resp.json()["detail"]
+
+
+async def test_put_policy_rejects_pass_threshold_above_existing_trials(app_client):
+    """Cross-field check must use the EFFECTIVE trials_per_case (existing
+    value) when only pass_threshold is given in this request."""
+    agent = (await app_client.post("/agents", json={"name": "Policy Validation 2b", "template": "blank"})).json()
+    # default trials_per_case is 3; pass_threshold=4 alone should 422.
+    resp = await app_client.put(f"/agents/{agent['id']}/policy", json={"pass_threshold": 4})
+    assert resp.status_code == 422
+
+
+async def test_put_policy_rejects_negative_max_regressions(app_client):
+    agent = (await app_client.post("/agents", json={"name": "Policy Validation 3", "template": "blank"})).json()
+    resp = await app_client.put(f"/agents/{agent['id']}/policy", json={"max_regressions": {"accuracy": -1}})
+    assert resp.status_code == 422
+    assert "max_regressions" in resp.json()["detail"]
+
+
+async def test_put_policy_rejects_negative_cooldown_hours(app_client):
+    agent = (await app_client.post("/agents", json={"name": "Policy Validation 4", "template": "blank"})).json()
+    resp = await app_client.put(f"/agents/{agent['id']}/policy", json={"cooldown_hours": -1})
+    assert resp.status_code == 422
+    assert "cooldown_hours" in resp.json()["detail"]
+
+
+async def test_put_policy_rejects_max_open_proposals_below_one(app_client):
+    agent = (await app_client.post("/agents", json={"name": "Policy Validation 5", "template": "blank"})).json()
+    resp = await app_client.put(f"/agents/{agent['id']}/policy", json={"max_open_proposals": 0})
+    assert resp.status_code == 422
+    assert "max_open_proposals" in resp.json()["detail"]
+
+
+async def test_put_policy_valid_edits_succeed(app_client):
+    agent = (await app_client.post("/agents", json={"name": "Policy Validation 6", "template": "blank"})).json()
+    resp = await app_client.put(
+        f"/agents/{agent['id']}/policy",
+        json={"axis_floors": {"safety": 100}, "pass_threshold": 2, "trials_per_case": 3, "cooldown_hours": 0, "max_open_proposals": 1},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["axis_floors"] == {"safety": 100}
+    assert body["cooldown_hours"] == 0
+    assert body["max_open_proposals"] == 1

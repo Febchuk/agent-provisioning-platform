@@ -232,7 +232,7 @@ async def test_im_2_flaky_case_is_skipped_not_targeted(session):
         llm_factory=eval_llm_factory,
     )
 
-    triage_result = triage(session, agent_id=agent.id, base_eval_run=base_eval_run)
+    triage_result = triage(session, agent_id=agent.id, base_eval_run=base_eval_run, target_axis="accuracy")
     assert triage_result.targets == []
     assert triage_result.skipped_flaky == [{"case_id": case.id, "reason": "flaky"}]
 

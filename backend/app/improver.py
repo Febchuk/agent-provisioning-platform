@@ -40,6 +40,7 @@ from app.evals import (
     get_or_create_policy,
     run_eval_run,
 )
+from app.evals import policy_to_dict as evals_policy_to_dict
 from app.ids import new_id
 from app.improver_prompt import PassingCase, TargetCase, build_improver_prompt
 from app.lint import CaseLintContext, lint_ops
@@ -113,17 +114,19 @@ class Triage:
     skipped_flaky: list[dict]  # [{case_id, reason: "flaky"}]
 
 
-def triage(session: Session, *, agent_id: str, base_eval_run: EvalRun) -> Triage:
-    """IM-2: targets = visible active cases failing with 0/3 trials passing
-    (i.e. zero passing trials) and NOT flaky. A case with >=1 passing trial
-    is either already passing (not a target) or flaky (goes to `skipped`
-    with reason "flaky"), never a diagnosis target either way.
+def triage(session: Session, *, agent_id: str, base_eval_run: EvalRun, target_axis: str) -> Triage:
+    """IM-2: targets = active, `split == "improve"`, `axis == target_axis`
+    cases (EV-11/D-34: one target axis per proposal) failing with 0 passing
+    trials and NOT flaky. A case with >=1 passing trial is either already
+    passing (not a target) or flaky (goes to `skipped` with reason "flaky"),
+    never a diagnosis target either way.
 
-    Uses `cases_for_improver` (EV-11) for the visible/active case set --
-    hidden siblings are never targets and never even considered here.
+    Uses `cases_for_improver` (EV-11) for the improve-split/target-axis case
+    set -- benchmark cases and other-axis cases are never targets and never
+    even considered here.
     """
     policy = get_or_create_policy(session, agent_id)
-    visible_active_cases = cases_for_improver(session, agent_id)
+    visible_active_cases = cases_for_improver(session, agent_id, target_axis=target_axis)
 
     targets: list[EvalCase] = []
     skipped_flaky: list[dict] = []
@@ -146,9 +149,11 @@ def triage(session: Session, *, agent_id: str, base_eval_run: EvalRun) -> Triage
     return Triage(base_eval_run=base_eval_run, targets=targets, skipped_flaky=skipped_flaky)
 
 
-def _passing_cases(session: Session, *, agent_id: str, base_eval_run: EvalRun, targets: list[EvalCase]) -> list[EvalCase]:
+def _passing_cases(
+    session: Session, *, agent_id: str, base_eval_run: EvalRun, targets: list[EvalCase], target_axis: str
+) -> list[EvalCase]:
     target_ids = {c.id for c in targets}
-    visible_active_cases = cases_for_improver(session, agent_id)
+    visible_active_cases = cases_for_improver(session, agent_id, target_axis=target_axis)
     passing: list[EvalCase] = []
     for case in visible_active_cases:
         if case.id in target_ids:
@@ -191,7 +196,7 @@ def _correction_for_case(session: Session, case: EvalCase) -> Optional[str]:
 
 
 def build_targets_and_passing(
-    session: Session, *, agent_id: str, base_eval_run: EvalRun, triage_result: Triage
+    session: Session, *, agent_id: str, base_eval_run: EvalRun, triage_result: Triage, target_axis: str
 ) -> tuple[list[TargetCase], list[PassingCase]]:
     targets: list[TargetCase] = []
     for case in triage_result.targets:
@@ -209,7 +214,9 @@ def build_targets_and_passing(
 
     passing_cases = [
         PassingCase(case_id=c.id, name=c.name)
-        for c in _passing_cases(session, agent_id=agent_id, base_eval_run=base_eval_run, targets=triage_result.targets)
+        for c in _passing_cases(
+            session, agent_id=agent_id, base_eval_run=base_eval_run, targets=triage_result.targets, target_axis=target_axis
+        )
     ]
     return targets, passing_cases
 
@@ -401,6 +408,7 @@ async def run_proposal_pipeline(
     improver_llm_factory: Callable[[], LLM],
     judge_model: Optional[str] = None,
     improver_model: Optional[str] = None,
+    target_axis: str = "accuracy",
 ) -> Proposal:
     """Runs the full pipeline (steps 1-6) for an already-created `Proposal`
     row (status="generating"), mutating it in place as the pipeline
@@ -431,7 +439,7 @@ async def run_proposal_pipeline(
         session.add(proposal)
         session.commit()
 
-        triage_result = triage(session, agent_id=agent_id, base_eval_run=base_eval_run)
+        triage_result = triage(session, agent_id=agent_id, base_eval_run=base_eval_run, target_axis=target_axis)
         proposal.skipped = list(triage_result.skipped_flaky)
         session.add(proposal)
         session.commit()
@@ -444,14 +452,14 @@ async def run_proposal_pipeline(
             proposal.ops = []
             proposal.lint = []
             proposal.status = "ready"
-            proposal.decision_note = "no failing (non-flaky) visible cases; no change recommended"
+            proposal.decision_note = f"no failing (non-flaky) '{target_axis}' cases; no change recommended"
             session.add(proposal)
             session.commit()
             session.refresh(proposal)
             return proposal
 
         targets, passing_cases = build_targets_and_passing(
-            session, agent_id=agent_id, base_eval_run=base_eval_run, triage_result=triage_result
+            session, agent_id=agent_id, base_eval_run=base_eval_run, triage_result=triage_result, target_axis=target_axis
         )
 
         # --- Step 2: Diagnose + Propose --------------------------------------
@@ -549,17 +557,31 @@ async def run_proposal_pipeline(
             select(EvalCase).where(EvalCase.agent_id == agent_id, EvalCase.status == "active")
         ).all()
         case_dicts = [
-            {"id": c.id, "name": c.name, "axis": c.axis, "pinned": c.pinned, "hidden": c.hidden} for c in all_cases
+            {"id": c.id, "name": c.name, "axis": c.axis, "pinned": c.pinned, "split": c.split} for c in all_cases
         ]
         base_results = case_pass_map(session, base_eval_run.id)
         cand_results = case_pass_map(session, cand_eval_run.id)
-        policy_dict = {
-            "min_avg_improvement_pct": policy.min_avg_improvement_pct,
-            "max_regressions": policy.max_regressions,
-        }
-        verdict = compute_verdict(base_results, cand_results, case_dicts, policy_dict)
+        policy_dict = evals_policy_to_dict(policy)
+        # EvalRun.cost_usd is always None in this phase (no cost metering
+        # infra exists yet) -- compute_verdict must treat this as "not
+        # measured" (see its own docstring), which base_avg_cost=None /
+        # cand_avg_cost=None achieves directly.
+        verdict = compute_verdict(
+            base_results,
+            cand_results,
+            case_dicts,
+            policy_dict,
+            target_axis=target_axis,
+            base_avg_cost=base_eval_run.cost_usd,
+            cand_avg_cost=cand_eval_run.cost_usd,
+        )
 
         proposal.verdict = verdict
+        # v2 cherry-pick: snapshot the exact policy dict the verdict was
+        # judged against, so a later policy change can be detected as
+        # staleness (app.verdict.verdict_is_stale) without ever recomputing
+        # pass/fail.
+        proposal.policy_snapshot = policy_dict
         proposal.status = "ready"
         session.add(proposal)
         session.commit()
@@ -611,10 +633,20 @@ def proposal_diff(session: Session, proposal: Proposal) -> dict:
 
 
 def proposal_to_dict(session: Session, proposal: Proposal) -> dict:
-    from app.evals import eval_run_summary
+    from app.evals import eval_run_summary, get_or_create_policy
+    from app.verdict import verdict_is_stale
 
     base_eval = eval_run_summary(session, proposal.base_eval_run_id) if proposal.base_eval_run_id else None
     cand_eval = eval_run_summary(session, proposal.cand_eval_run_id) if proposal.cand_eval_run_id else None
+
+    # v2 cherry-pick: staleness is computed here (not stored) -- it must
+    # always reflect the CURRENT live policy vs. the snapshot taken at
+    # evaluation time, never a stale cached diff. Never touches
+    # proposal.verdict / meets_policy.
+    policy_diff: dict = {}
+    if proposal.policy_snapshot:
+        live_policy = get_or_create_policy(session, proposal.agent_id)
+        policy_diff = verdict_is_stale(proposal.policy_snapshot, evals_policy_to_dict(live_policy))
 
     return {
         "id": proposal.id,
@@ -628,6 +660,8 @@ def proposal_to_dict(session: Session, proposal: Proposal) -> dict:
         "lint": proposal.lint,
         "diff": proposal_diff(session, proposal),
         "verdict": proposal.verdict,
+        "policy_snapshot": proposal.policy_snapshot,
+        "policy_diff": policy_diff,  # {} means not stale
         "base_eval_run": base_eval,
         "cand_eval_run": cand_eval,
         "decision_note": proposal.decision_note,

@@ -234,6 +234,7 @@ export default function EvalsPage({ params }: { params: Promise<{ id: string }> 
         {policy ? (
           <PolicyPanel
             policy={policy}
+            cases={cases}
             saving={savingPolicy}
             onSave={async (next) => {
               setSavingPolicy(true);
@@ -382,34 +383,178 @@ function FeedbackCard({
   );
 }
 
+// Plain-language explanation helpers -----------------------------------
+
+function explainMaxRegressions(maxRegressions: Record<string, number>, targetAxisGuess: string): string {
+  const entries = Object.entries(maxRegressions ?? {});
+  if (entries.length === 0) return "No per-axis regression limits set.";
+  return entries
+    .map(([axis, n]) => `Allow up to ${n} ${axis} case${n === 1 ? "" : "s"} to get worse if ${targetAxisGuess} improves.`)
+    .join(" ");
+}
+
+function explainAxisFloor(axis: string, floor: number): string {
+  return `${axis[0].toUpperCase()}${axis.slice(1)} pass rate must never drop below ${floor}%, regardless of target-axis gains.`;
+}
+
+// Case-count translation: "+N pts ~= at least M more case(s) passing on
+// <axis> (T cases)". Recomputed live from the actual case counts on the
+// page (never hardcoded) -- `caseCountsByAxis` comes from the real
+// GET /agents/{id}/cases response already loaded on this page.
+function explainGainInCases(gainPts: number, axis: string, caseCountsByAxis: Record<string, number>): string | null {
+  const total = caseCountsByAxis[axis] ?? 0;
+  if (total === 0) return null;
+  const casesNeeded = Math.max(1, Math.ceil((gainPts / 100) * total));
+  return `+${gainPts} pts ≈ at least ${casesNeeded} more case${casesNeeded === 1 ? "" : "s"} passing on ${axis} (${total} case${total === 1 ? "" : "s"})`;
+}
+
+function countCasesByAxis(cases: EvalCase[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of cases) {
+    out[c.axis] = (out[c.axis] ?? 0) + 1;
+  }
+  return out;
+}
+
+type PolicyFormErrors = {
+  minTargetGain?: string;
+  trialsPerCase?: string;
+  passThreshold?: string;
+  axisFloors?: string;
+  maxRegressions?: string;
+  maxCostIncrease?: string;
+  minSignals?: string;
+  cooldownHours?: string;
+  maxOpenProposals?: string;
+};
+
+function validatePolicyForm(form: {
+  minTargetGain: number;
+  trialsPerCase: number;
+  passThreshold: number;
+  axisFloors: Record<string, number>;
+  maxRegressions: Record<string, number>;
+  maxCostIncrease: number;
+  minSignals: number;
+  cooldownHours: number;
+  maxOpenProposals: number;
+}): PolicyFormErrors {
+  const errors: PolicyFormErrors = {};
+
+  for (const [axis, v] of Object.entries(form.axisFloors)) {
+    if (!(v >= 0 && v <= 100)) {
+      errors.axisFloors = `Floor for ${axis} must be between 0 and 100 (got ${v}).`;
+      break;
+    }
+  }
+  if (form.passThreshold > form.trialsPerCase) {
+    errors.passThreshold = `Pass threshold (${form.passThreshold}) must be <= trials per case (${form.trialsPerCase}).`;
+  }
+  for (const [axis, v] of Object.entries(form.maxRegressions)) {
+    if (v < 0) {
+      errors.maxRegressions = `Max regressions for ${axis} must be >= 0 (got ${v}).`;
+      break;
+    }
+  }
+  if (form.cooldownHours < 0) {
+    errors.cooldownHours = "Cooldown hours must be >= 0.";
+  }
+  if (form.maxOpenProposals < 1) {
+    errors.maxOpenProposals = "Max open proposals must be >= 1.";
+  }
+  return errors;
+}
+
 function PolicyPanel({
   policy,
+  cases,
   saving,
   onSave,
 }: {
   policy: Policy;
+  cases: EvalCase[];
   saving: boolean;
   onSave: (next: Partial<Policy>) => void;
 }) {
-  const [minAvg, setMinAvg] = useState(policy.min_avg_improvement_pct);
+  const [minTargetGain, setMinTargetGain] = useState(policy.min_target_gain_pct);
   const [trialsPerCase, setTrialsPerCase] = useState(policy.trials_per_case);
   const [passThreshold, setPassThreshold] = useState(policy.pass_threshold);
   const [maxRegressionsText, setMaxRegressionsText] = useState(
     JSON.stringify(policy.max_regressions ?? {})
   );
+  const [axisFloorsText, setAxisFloorsText] = useState(JSON.stringify(policy.axis_floors ?? {}));
+  const [maxCostIncrease, setMaxCostIncrease] = useState(policy.max_cost_increase_pct);
+  const [minSignals, setMinSignals] = useState(policy.min_signals);
+  const [cooldownHours, setCooldownHours] = useState(policy.cooldown_hours);
+  const [maxOpenProposals, setMaxOpenProposals] = useState(policy.max_open_proposals);
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<PolicyFormErrors>({});
+
+  const caseCountsByAxis = countCasesByAxis(cases);
+  const axes = Object.keys(caseCountsByAxis).length > 0 ? Object.keys(caseCountsByAxis) : ["accuracy"];
+  // "Target axis" isn't a policy field (it's chosen per-proposal) -- for the
+  // plain-language copy on this panel we use the most common case axis as a
+  // representative example, since that's almost always what an owner will
+  // target first.
+  const representativeAxis = axes.reduce((a, b) => (caseCountsByAxis[a] >= (caseCountsByAxis[b] ?? 0) ? a : b), axes[0]);
+
+  const gainInCases = explainGainInCases(minTargetGain, representativeAxis, caseCountsByAxis);
+
+  function handleSave() {
+    let maxRegressions: Record<string, number>;
+    let axisFloors: Record<string, number>;
+    try {
+      maxRegressions = JSON.parse(maxRegressionsText);
+      axisFloors = JSON.parse(axisFloorsText);
+      setJsonError(null);
+    } catch {
+      setJsonError('Max regressions / axis floors must be valid JSON, e.g. {"accuracy": 0}');
+      return;
+    }
+
+    const errors = validatePolicyForm({
+      minTargetGain,
+      trialsPerCase,
+      passThreshold,
+      axisFloors,
+      maxRegressions,
+      maxCostIncrease,
+      minSignals,
+      cooldownHours,
+      maxOpenProposals,
+    });
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    onSave({
+      min_target_gain_pct: minTargetGain,
+      trials_per_case: trialsPerCase,
+      pass_threshold: passThreshold,
+      max_regressions: maxRegressions,
+      axis_floors: axisFloors,
+      max_cost_increase_pct: maxCostIncrease,
+      min_signals: minSignals,
+      cooldown_hours: cooldownHours,
+      max_open_proposals: maxOpenProposals,
+    });
+  }
 
   return (
-    <div className="max-w-md space-y-3 rounded border p-3 text-sm">
+    <div className="max-w-md space-y-4 rounded border p-3 text-sm">
       <label className="block">
-        <span className="text-gray-600">Min avg improvement (%)</span>
+        <span className="text-gray-600">Min target gain (%)</span>
         <input
           type="number"
           className="mt-1 w-full rounded border px-2 py-1"
-          value={minAvg}
-          onChange={(e) => setMinAvg(Number(e.target.value))}
+          value={minTargetGain}
+          onChange={(e) => setMinTargetGain(Number(e.target.value))}
         />
+        <p className="mt-1 text-xs text-gray-500">
+          Candidate must improve by at least {minTargetGain} point{minTargetGain === 1 ? "" : "s"} on the target axis.
+        </p>
+        {gainInCases ? <p className="mt-0.5 text-xs text-gray-400">{gainInCases}</p> : null}
       </label>
+
       <label className="block">
         <span className="text-gray-600">Trials per case</span>
         <input
@@ -419,6 +564,7 @@ function PolicyPanel({
           onChange={(e) => setTrialsPerCase(Number(e.target.value))}
         />
       </label>
+
       <label className="block">
         <span className="text-gray-600">Pass threshold (trials needed to pass)</span>
         <input
@@ -427,7 +573,12 @@ function PolicyPanel({
           value={passThreshold}
           onChange={(e) => setPassThreshold(Number(e.target.value))}
         />
+        <p className="mt-1 text-xs text-gray-500">
+          A case needs at least {passThreshold} of {trialsPerCase} trials to pass.
+        </p>
+        {formErrors.passThreshold ? <p className="mt-1 text-xs text-red-600">{formErrors.passThreshold}</p> : null}
       </label>
+
       <label className="block">
         <span className="text-gray-600">Max regressions per axis (JSON)</span>
         <input
@@ -436,25 +587,102 @@ function PolicyPanel({
           value={maxRegressionsText}
           onChange={(e) => setMaxRegressionsText(e.target.value)}
         />
+        <p className="mt-1 text-xs text-gray-500">
+          {(() => {
+            try {
+              return explainMaxRegressions(JSON.parse(maxRegressionsText), representativeAxis);
+            } catch {
+              return "Invalid JSON.";
+            }
+          })()}
+        </p>
+        {formErrors.maxRegressions ? <p className="mt-1 text-xs text-red-600">{formErrors.maxRegressions}</p> : null}
       </label>
+
+      <label className="block">
+        <span className="text-gray-600">Axis floors -- minimum pass rate per axis (JSON, 0-100)</span>
+        <input
+          type="text"
+          className="mt-1 w-full rounded border px-2 py-1 font-mono"
+          value={axisFloorsText}
+          onChange={(e) => setAxisFloorsText(e.target.value)}
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          {(() => {
+            try {
+              const parsed = JSON.parse(axisFloorsText) as Record<string, number>;
+              const entries = Object.entries(parsed);
+              if (entries.length === 0) return "No axis floors set -- a candidate can drop any axis's pass rate.";
+              return entries.map(([axis, floor]) => explainAxisFloor(axis, floor)).join(" ");
+            } catch {
+              return "Invalid JSON.";
+            }
+          })()}
+        </p>
+        {formErrors.axisFloors ? <p className="mt-1 text-xs text-red-600">{formErrors.axisFloors}</p> : null}
+      </label>
+
+      <label className="block">
+        <span className="text-gray-600">Max cost increase (%)</span>
+        <input
+          type="number"
+          className="mt-1 w-full rounded border px-2 py-1"
+          value={maxCostIncrease}
+          onChange={(e) => setMaxCostIncrease(Number(e.target.value))}
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Candidate&apos;s average cost per run must not rise more than {maxCostIncrease}% vs. the base version. (Cost
+          isn&apos;t measured yet in this build -- this gate is skipped with a warning until cost metering exists.)
+        </p>
+        {formErrors.maxCostIncrease ? <p className="mt-1 text-xs text-red-600">{formErrors.maxCostIncrease}</p> : null}
+      </label>
+
+      <label className="block">
+        <span className="text-gray-600">Min signals (not yet enforced)</span>
+        <input
+          type="number"
+          className="mt-1 w-full rounded border px-2 py-1"
+          value={minSignals}
+          onChange={(e) => setMinSignals(Number(e.target.value))}
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Reserved for a future signals/clustering phase -- stored but not yet used to gate anything.
+        </p>
+      </label>
+
+      <label className="block">
+        <span className="text-gray-600">Cooldown hours (not yet enforced)</span>
+        <input
+          type="number"
+          className="mt-1 w-full rounded border px-2 py-1"
+          value={cooldownHours}
+          onChange={(e) => setCooldownHours(Number(e.target.value))}
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Minimum hours to wait between proposals on the same axis. Reserved for a future phase.
+        </p>
+        {formErrors.cooldownHours ? <p className="mt-1 text-xs text-red-600">{formErrors.cooldownHours}</p> : null}
+      </label>
+
+      <label className="block">
+        <span className="text-gray-600">Max open proposals (not yet enforced)</span>
+        <input
+          type="number"
+          className="mt-1 w-full rounded border px-2 py-1"
+          value={maxOpenProposals}
+          onChange={(e) => setMaxOpenProposals(Number(e.target.value))}
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Maximum number of proposals open at once. Reserved for a future phase.
+        </p>
+        {formErrors.maxOpenProposals ? <p className="mt-1 text-xs text-red-600">{formErrors.maxOpenProposals}</p> : null}
+      </label>
+
       {jsonError ? <ErrorBanner message={jsonError} /> : null}
       <button
         className="rounded bg-black px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
         disabled={saving}
-        onClick={() => {
-          try {
-            const maxRegressions = JSON.parse(maxRegressionsText);
-            setJsonError(null);
-            onSave({
-              min_avg_improvement_pct: minAvg,
-              trials_per_case: trialsPerCase,
-              pass_threshold: passThreshold,
-              max_regressions: maxRegressions,
-            });
-          } catch {
-            setJsonError("Max regressions must be valid JSON, e.g. {\"accuracy\": 0}");
-          }
-        }}
+        onClick={handleSave}
       >
         {saving ? <Spinner label="Saving..." /> : "Save policy"}
       </button>

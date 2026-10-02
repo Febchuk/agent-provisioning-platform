@@ -204,6 +204,8 @@ export type EvalCase = {
   check_type: string;
   check_spec: Record<string, unknown>;
   pinned: boolean;
+  split: "improve" | "benchmark";
+  origin: "feedback" | "ground_truth" | "variant";
   status: string;
   from_feedback_id: string | null;
   latest_result: EvalCaseLatestResult;
@@ -211,10 +213,15 @@ export type EvalCase = {
 
 export type Policy = {
   agent_id: string;
-  min_avg_improvement_pct: number;
+  min_target_gain_pct: number;
   max_regressions: Record<string, number>;
   trials_per_case: number;
   pass_threshold: number;
+  axis_floors: Record<string, number>;
+  max_cost_increase_pct: number;
+  min_signals: number;
+  cooldown_hours: number;
+  max_open_proposals: number;
 };
 
 export type EvalRunCaseTrial = {
@@ -229,7 +236,7 @@ export type EvalRunCaseSummary = {
   name: string | null;
   axis: string | null;
   pinned: boolean;
-  hidden: boolean;
+  split: "improve" | "benchmark" | null;
   passed: boolean;
   flaky: boolean;
   trials: EvalRunCaseTrial[];
@@ -254,19 +261,22 @@ export type VerdictCaseSummary = {
 };
 
 export type Verdict = {
-  base_score: number;
-  cand_score: number;
-  n_visible: number;
+  target_axis: string;
+  target_gain: number;
+  bench_target_delta: number | null;
+  overall: { base: number; cand: number };
+  by_axis: Record<string, { base: number | null; cand: number | null }>;
+  by_split: Record<string, { base: number | null; cand: number | null }>;
   fixed: VerdictCaseSummary[];
   regressed: VerdictCaseSummary[];
   unchanged: VerdictCaseSummary[];
-  avg_delta: number;
-  by_axis: Record<string, number>;
   axis_breach: Record<string, number>;
+  floor_breach: Record<string, number>;
   pinned_regressed: VerdictCaseSummary[];
+  cost: { base: number | null; cand: number | null; delta_pct: number | null };
   meets_policy: boolean;
   reasons: string[];
-  generalization: { base: number; cand: number; total: number };
+  warnings: string[];
 };
 
 export type ProposalOp = {
@@ -293,6 +303,8 @@ export type ProposalDiff = {
   after_text: string;
 };
 
+export type PolicyFieldDiff = { from: unknown; to: unknown };
+
 export type Proposal = {
   id: string;
   agent_id: string;
@@ -305,6 +317,12 @@ export type Proposal = {
   lint: ProposalLintEntry[] | null;
   diff: ProposalDiff;
   verdict: Verdict | null;
+  // v2 cherry-pick: the policy dict the verdict was judged against, and a
+  // {field: {from, to}} diff against the CURRENT live policy ({} = not
+  // stale). Never changes verdict.meets_policy -- staleness is a signal
+  // only.
+  policy_snapshot: Partial<Policy> | null;
+  policy_diff: Record<string, PolicyFieldDiff>;
   base_eval_run: EvalRunSummary | null;
   cand_eval_run: EvalRunSummary | null;
   decision_note: string | null;
@@ -369,12 +387,14 @@ export const api = {
       axis?: string;
       history?: unknown;
       pinned?: boolean;
+      split?: "improve" | "benchmark";
+      origin?: "feedback" | "ground_truth" | "variant";
       from_feedback_id?: string;
     }
   ) => post<EvalCase>(`/agents/${agentId}/cases`, body),
   patchCase: (
     caseId: string,
-    body: Partial<{ pinned: boolean; axis: string; name: string; status: string }>
+    body: Partial<{ pinned: boolean; axis: string; name: string; split: string; status: string }>
   ) => patch<EvalCase>(`/cases/${caseId}`, body),
   listCases: (agentId: string) => get<EvalCase[]>(`/agents/${agentId}/cases`),
 
@@ -385,8 +405,8 @@ export const api = {
   getPolicy: (agentId: string) => get<Policy>(`/agents/${agentId}/policy`),
   putPolicy: (agentId: string, body: Partial<Policy>) => put<Policy>(`/agents/${agentId}/policy`, body),
 
-  createProposal: (agentId: string) =>
-    post<{ proposal_id: string }>(`/agents/${agentId}/proposals`, undefined),
+  createProposal: (agentId: string, targetAxis?: string) =>
+    post<{ proposal_id: string }>(`/agents/${agentId}/proposals`, targetAxis ? { target_axis: targetAxis } : undefined),
   getProposal: (proposalId: string) => get<Proposal>(`/proposals/${proposalId}`),
   acceptProposal: (proposalId: string, deploy: boolean, note?: string) =>
     post<Proposal>(`/proposals/${proposalId}/accept`, { deploy, note }),
