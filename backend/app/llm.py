@@ -13,9 +13,17 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, Optional, Protocol
 
 import openai  # ONLY module in the codebase allowed to do this (MG-2).
+from dotenv import load_dotenv
+
+# Load backend/.env once at import time so MODEL_BASE_URL / MODEL_API_KEY /
+# MODEL_NAME (MG-1) are populated from the gitignored .env file in dev and in
+# scripts, without overriding real environment variables that are already set
+# (e.g. in CI or a container).
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
 
 @dataclass
