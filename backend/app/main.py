@@ -520,6 +520,8 @@ class CreateCaseBody(BaseModel):
     axis: str = "accuracy"
     history: Optional[list[dict]] = None
     pinned: bool = False
+    split: str = "improve"
+    origin: str = "feedback"
     from_feedback_id: Optional[str] = None
 
 
@@ -533,7 +535,8 @@ def _case_out(case: EvalCase) -> dict:
         "check_type": case.check_type,
         "check_spec": case.check_spec,
         "pinned": case.pinned,
-        "hidden": case.hidden,
+        "split": case.split,
+        "origin": case.origin,
         "parent_case_id": case.parent_case_id,
         "from_feedback_id": case.from_feedback_id,
         "status": case.status,
@@ -559,7 +562,8 @@ async def post_create_case(agent_id: str, body: CreateCaseBody) -> dict:
             axis=body.axis,
             history=body.history,
             pinned=body.pinned,
-            hidden=False,
+            split=body.split,
+            origin=body.origin,
             from_feedback_id=body.from_feedback_id,
             status="active",
         )
@@ -578,6 +582,7 @@ class PatchCaseBody(BaseModel):
     pinned: Optional[bool] = None
     axis: Optional[str] = None
     name: Optional[str] = None
+    split: Optional[str] = None
     status: Optional[str] = None
 
 
@@ -586,7 +591,13 @@ async def patch_case(case_id: str, body: PatchCaseBody) -> dict:
     with Session(db.engine) as session:
         try:
             case = services.patch_eval_case(
-                session, case_id, pinned=body.pinned, axis=body.axis, name=body.name, status=body.status
+                session,
+                case_id,
+                pinned=body.pinned,
+                axis=body.axis,
+                name=body.name,
+                split=body.split,
+                status=body.status,
             )
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
@@ -647,10 +658,15 @@ async def get_agent_policy(agent_id: str) -> dict:
 
 
 class PutPolicyBody(BaseModel):
-    min_avg_improvement_pct: Optional[float] = None
+    min_target_gain_pct: Optional[float] = None
     max_regressions: Optional[dict] = None
     trials_per_case: Optional[int] = None
     pass_threshold: Optional[int] = None
+    axis_floors: Optional[dict] = None
+    max_cost_increase_pct: Optional[float] = None
+    min_signals: Optional[int] = None
+    cooldown_hours: Optional[int] = None
+    max_open_proposals: Optional[int] = None
 
 
 @app.put("/agents/{agent_id}/policy")
@@ -659,14 +675,22 @@ async def put_agent_policy(agent_id: str, body: PutPolicyBody) -> dict:
         agent = services.get_agent_or_404(session, agent_id)
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not found")
-        policy = evals.update_policy(
-            session,
-            agent_id,
-            min_avg_improvement_pct=body.min_avg_improvement_pct,
-            max_regressions=body.max_regressions,
-            trials_per_case=body.trials_per_case,
-            pass_threshold=body.pass_threshold,
-        )
+        try:
+            policy = evals.update_policy(
+                session,
+                agent_id,
+                min_target_gain_pct=body.min_target_gain_pct,
+                max_regressions=body.max_regressions,
+                trials_per_case=body.trials_per_case,
+                pass_threshold=body.pass_threshold,
+                axis_floors=body.axis_floors,
+                max_cost_increase_pct=body.max_cost_increase_pct,
+                min_signals=body.min_signals,
+                cooldown_hours=body.cooldown_hours,
+                max_open_proposals=body.max_open_proposals,
+            )
+        except evals.PolicyValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e))
         return evals.policy_to_dict(policy)
 
 
@@ -681,8 +705,15 @@ def _improver_llm_factory() -> LLM:
 improver_llm_factory: "callable" = _improver_llm_factory
 
 
+class CreateProposalBody(BaseModel):
+    # v2 cherry-pick (D-34: one target axis per proposal). Defaults to
+    # "accuracy" to match this repo's existing demo data/flows, which predate
+    # per-axis targeting.
+    target_axis: str = "accuracy"
+
+
 @app.post("/agents/{agent_id}/proposals", status_code=201)
-async def post_create_proposal(agent_id: str) -> dict:
+async def post_create_proposal(agent_id: str, body: CreateProposalBody = CreateProposalBody()) -> dict:
     """IM-1: start the improver pipeline against the agent's DEPLOYED version.
     Runs the pipeline inline (awaited) rather than backgrounding it -- a
     proposal run is a handful of eval trials plus one LLM call, not an
@@ -711,6 +742,7 @@ async def post_create_proposal(agent_id: str) -> dict:
             improver_llm_factory=improver_llm_factory,
             judge_model=judge_model,
             improver_model=improver_model_name(),
+            target_axis=body.target_axis,
         )
 
     return {"proposal_id": proposal_id}

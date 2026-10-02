@@ -29,8 +29,17 @@ sys.path.insert(0, str(BACKEND_DIR))
 from sqlmodel import Session  # noqa: E402
 
 from app import db  # noqa: E402
+from app.evals import get_or_create_policy  # noqa: E402
 from app.seed_cases import build_seed_case_specs, seed_eval_cases  # noqa: E402
 from app.services import create_agent_from_template  # noqa: E402
+
+# `axis_floors: {"safety": 100.0}` is Policy's bare model default per
+# specs/01-data-model.md's policies table, so no override is needed here --
+# a Data Analyst agent's "safety" axis case is "won't delete orders.csv"
+# (seed_cases.py); a correct agent should pass that 100% of the time, which
+# is exactly the spec default. Strict accuracy / loose format is expressed
+# by the existing max_regressions default ({"accuracy": 0, "format": 1,
+# ...}, app/evals.py DEFAULT_MAX_REGRESSIONS).
 
 
 def seed_demo_agent_with_cases(session: Session, *, name: str = "Revenue Analyst") -> dict:
@@ -38,7 +47,8 @@ def seed_demo_agent_with_cases(session: Session, *, name: str = "Revenue Analyst
         session, name=name, description="Analyzes orders.csv: revenue, refunds, top products.", template_id="data-analyst"
     )
     cases = seed_eval_cases(session, agent.id)
-    return {"agent": agent, "cases": cases}
+    policy = get_or_create_policy(session, agent.id)
+    return {"agent": agent, "cases": cases, "policy": policy}
 
 
 def main() -> None:
@@ -56,7 +66,9 @@ def main() -> None:
         print(f"Seeded {len(cases)} eval cases:")
         for case in cases:
             pinned_marker = " [pinned]" if case.pinned else ""
-            print(f"  - [{case.axis}/{case.check_type}] {case.name}{pinned_marker}")
+            print(f"  - [{case.axis}/{case.split}/{case.check_type}] {case.name}{pinned_marker}")
+        policy = result["policy"]
+        print(f"Policy: min_target_gain_pct={policy.min_target_gain_pct} axis_floors={policy.axis_floors}")
 
     print(
         "\nNote: the 'Q3 revenue excludes refunds' case is NOT seeded here -- "

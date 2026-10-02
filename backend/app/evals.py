@@ -22,8 +22,9 @@ Responsibilities:
     here to build case-pass booleans from `EvalResult` rows when comparing
     two eval runs (the proposal flow, Phase 5, will call this; this phase
     only needs the per-case pass/flaky computation during execution).
-  - EV-11: `cases_for_improver` excludes hidden cases from anything handed
-    to the (future) improver -- enforced in this one function.
+  - EV-11 (v2 cherry-pick): `cases_for_improver` excludes benchmark-split
+    cases (and, when a target_axis is given, other-axis cases) from
+    anything handed to the improver -- enforced in this one function.
 """
 from __future__ import annotations
 
@@ -64,24 +65,100 @@ def get_or_create_policy(session: Session, agent_id: str) -> Policy:
     return policy
 
 
+class PolicyValidationError(ValueError):
+    """Raised by `update_policy` for an out-of-range field (backend
+    validation on PUT /agents/{id}/policy); the endpoint turns this into a
+    422 with the message below.
+    """
+
+
+def validate_policy_fields(
+    *,
+    axis_floors: Optional[dict] = None,
+    pass_threshold: Optional[int] = None,
+    trials_per_case: Optional[int] = None,
+    max_regressions: Optional[dict] = None,
+    cooldown_hours: Optional[int] = None,
+    max_open_proposals: Optional[int] = None,
+) -> None:
+    """Raises `PolicyValidationError` with a clear message on the first rule
+    violated; a caller should pass whatever fields it has from the request
+    (both existing-plus-new and unspecified fields are None and skipped).
+    `pass_threshold <= trials_per_case` is validated using the EFFECTIVE
+    (post-update) values of both -- see `update_policy`, which resolves
+    defaults from the existing policy row before calling this.
+    """
+    if axis_floors is not None:
+        for axis, v in axis_floors.items():
+            if not isinstance(v, (int, float)) or not (0 <= v <= 100):
+                raise PolicyValidationError(
+                    f"axis_floors[{axis!r}] must be between 0 and 100 (got {v!r})"
+                )
+    if max_regressions is not None:
+        for axis, v in max_regressions.items():
+            if not isinstance(v, (int, float)) or v < 0:
+                raise PolicyValidationError(
+                    f"max_regressions[{axis!r}] must be >= 0 (got {v!r})"
+                )
+    if pass_threshold is not None and trials_per_case is not None:
+        if pass_threshold > trials_per_case:
+            raise PolicyValidationError(
+                f"pass_threshold ({pass_threshold}) must be <= trials_per_case ({trials_per_case})"
+            )
+    if cooldown_hours is not None and cooldown_hours < 0:
+        raise PolicyValidationError(f"cooldown_hours must be >= 0 (got {cooldown_hours!r})")
+    if max_open_proposals is not None and max_open_proposals < 1:
+        raise PolicyValidationError(f"max_open_proposals must be >= 1 (got {max_open_proposals!r})")
+
+
 def update_policy(
     session: Session,
     agent_id: str,
     *,
-    min_avg_improvement_pct: Optional[float] = None,
+    min_target_gain_pct: Optional[float] = None,
     max_regressions: Optional[dict] = None,
     trials_per_case: Optional[int] = None,
     pass_threshold: Optional[int] = None,
+    axis_floors: Optional[dict] = None,
+    max_cost_increase_pct: Optional[float] = None,
+    min_signals: Optional[int] = None,
+    cooldown_hours: Optional[int] = None,
+    max_open_proposals: Optional[int] = None,
 ) -> Policy:
     policy = get_or_create_policy(session, agent_id)
-    if min_avg_improvement_pct is not None:
-        policy.min_avg_improvement_pct = min_avg_improvement_pct
+
+    # Resolve effective (post-update) values for the cross-field check
+    # (pass_threshold <= trials_per_case) before validating.
+    effective_trials_per_case = trials_per_case if trials_per_case is not None else policy.trials_per_case
+    effective_pass_threshold = pass_threshold if pass_threshold is not None else policy.pass_threshold
+
+    validate_policy_fields(
+        axis_floors=axis_floors,
+        pass_threshold=effective_pass_threshold,
+        trials_per_case=effective_trials_per_case,
+        max_regressions=max_regressions,
+        cooldown_hours=cooldown_hours,
+        max_open_proposals=max_open_proposals,
+    )
+
+    if min_target_gain_pct is not None:
+        policy.min_target_gain_pct = min_target_gain_pct
     if max_regressions is not None:
         policy.max_regressions = max_regressions
     if trials_per_case is not None:
         policy.trials_per_case = trials_per_case
     if pass_threshold is not None:
         policy.pass_threshold = pass_threshold
+    if axis_floors is not None:
+        policy.axis_floors = axis_floors
+    if max_cost_increase_pct is not None:
+        policy.max_cost_increase_pct = max_cost_increase_pct
+    if min_signals is not None:
+        policy.min_signals = min_signals
+    if cooldown_hours is not None:
+        policy.cooldown_hours = cooldown_hours
+    if max_open_proposals is not None:
+        policy.max_open_proposals = max_open_proposals
     session.add(policy)
     session.commit()
     session.refresh(policy)
@@ -91,10 +168,15 @@ def update_policy(
 def policy_to_dict(policy: Policy) -> dict:
     return {
         "agent_id": policy.agent_id,
-        "min_avg_improvement_pct": policy.min_avg_improvement_pct,
+        "min_target_gain_pct": policy.min_target_gain_pct,
         "max_regressions": policy.max_regressions,
         "trials_per_case": policy.trials_per_case,
         "pass_threshold": policy.pass_threshold,
+        "axis_floors": policy.axis_floors,
+        "max_cost_increase_pct": policy.max_cost_increase_pct,
+        "min_signals": policy.min_signals,
+        "cooldown_hours": policy.cooldown_hours,
+        "max_open_proposals": policy.max_open_proposals,
     }
 
 
@@ -256,41 +338,45 @@ async def draft_case_from_feedback(session: Session, feedback_id: str, llm: LLM,
 
 
 # ---------------------------------------------------------------------------
-# cases_for_improver (EV-11, AC-EV-f)
+# cases_for_improver (EV-11, AC-EV-f -- v2 cherry-pick: target_axis + split)
 # ---------------------------------------------------------------------------
-def cases_for_improver(session: Session, agent_id: str) -> list[EvalCase]:
-    """EV-11: cases with hidden=True SHALL be excluded from any data passed
-    to the improver. This is the one function that enforces that -- Phase 5
-    (the improver) must call this rather than querying eval_cases directly.
+def cases_for_improver(session: Session, agent_id: str, target_axis: Optional[str] = None) -> list[EvalCase]:
+    """EV-11 (v2): `cases_for_improver(agent, target_axis)` SHALL return only
+    `active`, `split == "improve"` cases whose `axis == target_axis`. This is
+    the ONE function that supplies cases to the improver -- callers must use
+    it rather than querying eval_cases directly (AC-EV-f: never returns a
+    benchmark-split case or a case from a different axis).
+
+    `target_axis` is optional for backward-compat call sites that still want
+    "all improve-split active cases regardless of axis" (e.g. the feedback
+    inbox / case list don't target one axis); the improver pipeline itself
+    always passes an explicit `target_axis`.
     """
-    return session.exec(
-        select(EvalCase).where(
-            EvalCase.agent_id == agent_id,
-            EvalCase.status == "active",
-            EvalCase.hidden == False,  # noqa: E712 (SQLModel comparison, not a Python bool check)
-        )
-    ).all()
+    query = select(EvalCase).where(
+        EvalCase.agent_id == agent_id,
+        EvalCase.status == "active",
+        EvalCase.split == "improve",
+    )
+    if target_axis is not None:
+        query = query.where(EvalCase.axis == target_axis)
+    return session.exec(query).all()
 
 
 # ---------------------------------------------------------------------------
 # Visible cases listing (GET /agents/{id}/cases)
 # ---------------------------------------------------------------------------
 def list_visible_cases(session: Session, agent_id: str) -> list[EvalCase]:
-    """Visible = non-hidden, per the endpoint table ("Visible cases + latest
-    results on the deployed version"). Includes draft/active/dismissed --
-    callers that want only active cases (e.g. the executor) filter further.
+    """All cases for this agent (v2 cherry-pick: `split` no longer means
+    "hidden from the owner" -- it only governs what the improver sees, via
+    `cases_for_improver`). Includes draft/active/dismissed -- callers that
+    want only active cases (e.g. the executor) filter further.
     """
-    return session.exec(
-        select(EvalCase).where(
-            EvalCase.agent_id == agent_id,
-            EvalCase.hidden == False,  # noqa: E712
-        )
-    ).all()
+    return session.exec(select(EvalCase).where(EvalCase.agent_id == agent_id)).all()
 
 
 def list_active_cases(session: Session, agent_id: str) -> list[EvalCase]:
-    """EV-5: "every active case (visible AND hidden)" -- the executor must
-    include hidden siblings, unlike `list_visible_cases`.
+    """EV-5: "every active case (both splits)" -- the executor must include
+    benchmark-split cases too, unlike `cases_for_improver`.
     """
     return session.exec(
         select(EvalCase).where(EvalCase.agent_id == agent_id, EvalCase.status == "active")
@@ -523,8 +609,8 @@ async def run_eval_run(
     max_concurrent: int = MAX_CONCURRENT_TRIALS,
 ) -> EvalRun:
     """Full eval-run lifecycle: create the EvalRun row, run every active case
-    (visible and hidden, EV-5) `trials_per_case` times on `version_id`,
-    persist EvalResult rows, mark the EvalRun finished.
+    (both splits, EV-5) `trials_per_case` times on `version_id`, persist
+    EvalResult rows, mark the EvalRun finished.
     """
     version = session.get(AgentVersion, version_id)
     if version is None or version.agent_id != agent_id:
@@ -602,7 +688,7 @@ def eval_run_summary(session: Session, eval_run_id: str) -> dict:
                 "name": case.name if case else None,
                 "axis": case.axis if case else None,
                 "pinned": case.pinned if case else False,
-                "hidden": case.hidden if case else False,
+                "split": case.split if case else None,
                 "passed": case_passed,
                 "flaky": flaky,
                 "trials": [
