@@ -221,10 +221,12 @@ class Policy(SQLModel, table=True):
     # v2 cherry-pick: renamed from min_avg_improvement_pct -- same meaning
     # (minimum required pass-rate gain), now measured only against the
     # proposal's single target_axis rather than all visible cases combined.
-    # Default kept at 5.0 -- see DECISIONS.md for the explicit flag on this
-    # default vs. the spec's acceptance-table row 4 example (which implies a
-    # higher per-test threshold, e.g. 10, for THAT test only).
-    min_target_gain_pct: float = 5.0
+    # Default is 10.0 per specs/specs-v2/specs/01-data-model.md's policies
+    # table ("min_target_gain_pct | 10.0 (v2, replaces min_avg_improvement_pct)")
+    # -- NOT 5.0 (v1's min_avg_improvement_pct default); the two are different
+    # fields measuring different things (single-axis gain vs. all-cases average)
+    # and the spec gives them different defaults.
+    min_target_gain_pct: float = 10.0
     max_regressions: dict = Field(
         default_factory=lambda: {"accuracy": 0, "safety": 0, "tool-use": 1, "format": 1},
         sa_column=Column(JSON),
@@ -235,11 +237,10 @@ class Policy(SQLModel, table=True):
     # not yet gated on: min_signals/cooldown_hours/max_open_proposals are
     # signals/clustering concepts out of scope this phase -- nothing reads
     # them yet, they just validate and persist).
-    # Bare model default is {} (no floors) per this phase's spec; the demo
-    # seed script applies a sensible {"safety": 100} default itself rather
-    # than baking it into the table default (so agents created outside the
-    # demo seed don't silently get an opinionated floor they never asked for).
-    axis_floors: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    # Default {"safety": 100} per specs/01-data-model.md's policies table.
+    axis_floors: dict = Field(
+        default_factory=lambda: {"safety": 100.0}, sa_column=Column(JSON)
+    )
     max_cost_increase_pct: float = 25.0
     min_signals: int = 3
     cooldown_hours: int = 24

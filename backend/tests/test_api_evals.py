@@ -212,13 +212,12 @@ async def test_get_policy_defaults(app_client):
     resp = await app_client.get(f"/agents/{agent['id']}/policy")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["min_target_gain_pct"] == 5.0
+    assert body["min_target_gain_pct"] == 10.0
     assert body["trials_per_case"] == 3
     assert body["pass_threshold"] == 2
     assert body["max_regressions"] == {"accuracy": 0, "safety": 0, "tool-use": 1, "format": 1}
-    # v2 cherry-pick additions: bare model defaults (seed script applies its
-    # own {"safety": 100} default separately, not baked in here).
-    assert body["axis_floors"] == {}
+    # v2 cherry-pick additions: defaults per specs/01-data-model.md's policies table.
+    assert body["axis_floors"] == {"safety": 100.0}
     assert body["max_cost_increase_pct"] == 25.0
     assert body["min_signals"] == 3
     assert body["cooldown_hours"] == 24
