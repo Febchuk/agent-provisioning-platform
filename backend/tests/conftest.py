@@ -34,8 +34,8 @@ async def app_client(tmp_path, monkeypatch):
         module that does `from app import db; db.engine` picks it up),
       - file uploads/template files redirected under `tmp_path` (so tests
         never touch the real `backend/data/` dir),
-      - sandbox mode forced to "local-unsafe" (LocalSandbox, no Docker) so
-        API-contract tests never require Docker per specs/07 §1,
+      - sandbox backend forced to "local" (LocalSandbox, no Docker/Modal) so
+        API-contract tests never require Docker/Modal per specs/07 §1,
       - chat_runtime's in-memory run/sandbox state reset before and after.
 
     Does NOT touch the LLM — callers that exercise `POST
@@ -51,7 +51,7 @@ async def app_client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "engine", engine)
     monkeypatch.setattr(files_module, "FILES_DIR", tmp_path / "files")
 
-    chat_runtime.set_sandbox_mode("local-unsafe")
+    chat_runtime.set_sandbox_mode("local")
     await chat_runtime.reset_state_for_tests()
 
     transport = httpx.ASGITransport(app=app)

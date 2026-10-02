@@ -72,7 +72,7 @@ const put = <T>(path: string, body?: unknown) =>
 // ---------------------------------------------------------------------------
 // Types (mirroring backend/app/main.py response shapes)
 // ---------------------------------------------------------------------------
-export type Health = { ok: boolean; sandbox_mode: "docker" | "local-unsafe" };
+export type Health = { ok: boolean; sandbox_backend: "provider" | "docker" | "local"; isolated: boolean };
 
 export type Template = {
   id: string;

@@ -7,9 +7,14 @@ network).
 
 Run explicitly with: pytest -m integration tests/integration/test_docker_sandbox.py
 (excluded from the default `pytest -q` run via pytest.ini's addopts).
+
+v2: construction updated from the old no-arg `DockerSandbox()` to the new
+SB-6 factory shape (`DockerSandbox.create(workspace_ref)`); assertions below
+are otherwise unchanged from v1.
 """
 import csv
 import io
+import uuid
 
 import pytest
 
@@ -43,7 +48,7 @@ class _FakeVersion:
 @pytest.fixture()
 async def docker_sandbox():
     assert docker_available(), "Docker must be available for integration tests"
-    sb = DockerSandbox()
+    sb = DockerSandbox.create(workspace_ref=uuid.uuid4().hex[:16])
     yield sb
     await sb.destroy()
 

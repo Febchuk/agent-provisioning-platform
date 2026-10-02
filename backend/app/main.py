@@ -20,22 +20,26 @@ from sqlmodel import Session, select
 from app import chat_runtime, db, evals, improver, services
 from app.db import init_db
 from app.files import store_file
+from app.ids import new_id
 from app.llm import LLM, OpenAICompatLLM, improver_model_name
 from app.models import AgentVersion, Conversation, EvalCase, Feedback, Proposal, Run
-from app.sandbox import DockerSandbox, LocalSandbox, Sandbox, docker_available
+from app.sandbox import Sandbox
+from app.sandbox_factory import create_sandbox, get_sandbox_backend, is_isolated
 from app.templates import list_templates
 
-# SB-5: detected once at startup (a Docker daemon ping), not re-checked per
-# request. app/sandbox.py's docker_available() is the single source of truth
-# for this check; main.py only reads the result.
-_sandbox_mode = {"value": "local-unsafe"}
+# IS-2: the backend is read once at startup from SANDBOX_BACKEND (default
+# "local") via app.sandbox_factory.get_sandbox_backend(), the single source
+# of truth for this decision. main.py and chat_runtime.py just read the
+# result (chat_runtime still keeps its own copy for its sandbox-creation
+# call sites, set via set_sandbox_mode below).
+_sandbox_backend: dict = {"value": "local"}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    _sandbox_mode["value"] = "docker" if docker_available() else "local-unsafe"
-    chat_runtime.set_sandbox_mode(_sandbox_mode["value"])
+    _sandbox_backend["value"] = get_sandbox_backend()
+    chat_runtime.set_sandbox_mode(_sandbox_backend["value"])
     yield
 
 
@@ -58,12 +62,13 @@ app.add_middleware(
 
 @app.get("/health")
 async def health() -> dict:
-    """GET /health — {ok, sandbox_mode} (specs/03 endpoint table; SB-5).
-
-    sandbox_mode is "docker" when the Docker daemon was reachable at startup,
-    else "local-unsafe" (LocalSandbox fallback).
+    """GET /health — {ok, sandbox_backend, isolated} (v2 IS-2; replaces v1's
+    {ok, sandbox_mode}). sandbox_backend is "provider" | "docker" | "local",
+    read once at startup from SANDBOX_BACKEND (default "local").
+    `isolated` is true for provider/docker, false for local.
     """
-    return {"ok": True, "sandbox_mode": _sandbox_mode["value"]}
+    backend = _sandbox_backend["value"]
+    return {"ok": True, "sandbox_backend": backend, "isolated": is_isolated(backend)}
 
 
 # ---------------------------------------------------------------------------
@@ -411,13 +416,16 @@ async def run_events(run_id: str):
 # ---------------------------------------------------------------------------
 # Feedback, draft-case, eval cases (specs/04-feedback-and-evals.md T3.1)
 # ---------------------------------------------------------------------------
-def _eval_sandbox_factory() -> Sandbox:
-    """Fresh sandbox per eval trial (EV-5), using the same Docker-vs-local
-    decision as chat (set once at startup from `docker_available()`).
+def _eval_sandbox_factory():
+    """Fresh sandbox per eval trial (EV-5/IS-9: eval trials always get a
+    fresh `create_sandbox()` with a new random `workspace_ref`, never
+    `resume_sandbox()` — real resume-on-idle-conversation lifecycle is
+    Phase 4's job for chat only). Returns a coroutine (awaited by
+    `app.evals._run_one_trial` when it detects one) because
+    `create_sandbox` dispatches to backends whose construction is natively
+    async (ModalSandbox).
     """
-    if _sandbox_mode["value"] == "docker":
-        return DockerSandbox()
-    return LocalSandbox()
+    return create_sandbox(new_id("ws"), backend=_sandbox_backend["value"])
 
 
 def _eval_llm_factory() -> LLM:

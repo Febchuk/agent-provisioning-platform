@@ -13,7 +13,7 @@ export default function AgentsPage() {
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
 
-  const [sandboxMode, setSandboxMode] = useState<string | null>(null);
+  const [isolated, setIsolated] = useState<boolean | null>(null);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -30,7 +30,7 @@ export default function AgentsPage() {
         if (ts.length > 0) setTemplateId(ts[0].id);
       })
       .catch((e: unknown) => setTemplatesError(e instanceof ApiError ? e.message : "Failed to load templates"));
-    api.health().then((h) => setSandboxMode(h.sandbox_mode)).catch(() => setSandboxMode(null));
+    api.health().then((h) => setIsolated(h.isolated)).catch(() => setIsolated(null));
   }, []);
 
   async function handleCreate() {
@@ -51,7 +51,7 @@ export default function AgentsPage() {
     <div className="mx-auto max-w-5xl p-4">
       <h1 className="mb-4 text-xl font-semibold">Agents</h1>
       <div className="mb-4">
-        <SandboxBanner sandboxMode={sandboxMode} />
+        <SandboxBanner isolated={isolated} />
       </div>
 
       <section className="mb-8">

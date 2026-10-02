@@ -15,13 +15,13 @@ const TABS = [
 
 export function OwnerHeader({ agentId, agentName }: { agentId: string; agentName?: string }) {
   const pathname = usePathname();
-  const [sandboxMode, setSandboxMode] = useState<string | null>(null);
+  const [isolated, setIsolated] = useState<boolean | null>(null);
 
   useEffect(() => {
     api
       .health()
-      .then((h) => setSandboxMode(h.sandbox_mode))
-      .catch(() => setSandboxMode(null));
+      .then((h) => setIsolated(h.isolated))
+      .catch(() => setIsolated(null));
   }, []);
 
   const base = `/agents/${agentId}`;
@@ -55,7 +55,7 @@ export function OwnerHeader({ agentId, agentName }: { agentId: string; agentName
         })}
       </nav>
       <div className="mt-2">
-        <SandboxBanner sandboxMode={sandboxMode} />
+        <SandboxBanner isolated={isolated} />
       </div>
     </header>
   );

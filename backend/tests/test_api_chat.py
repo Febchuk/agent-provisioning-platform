@@ -1,7 +1,7 @@
 """API-contract tests for conversations/messages/runs/SSE
 (specs/03-chat-and-deploy.md CD-4..CD-8; specs/07 §1 "API contract" row:
 httpx AsyncClient, no network/Docker — uses FakeLLM + LocalSandbox via the
-`app_client` fixture's sandbox_mode="local-unsafe").
+`app_client` fixture's sandbox backend="local").
 """
 import asyncio
 import json

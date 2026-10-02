@@ -38,7 +38,8 @@ from app.llm import LLM, OpenAICompatLLM
 from app.models import AgentVersion, Conversation, Message, Run
 from app.models import _utcnow
 from app.runner import run_turn
-from app.sandbox import DockerSandbox, LocalSandbox, Sandbox
+from app.sandbox import Sandbox
+from app.sandbox_factory import create_sandbox
 
 # --------------------------------------------------------------------------
 # Per-conversation sandbox registry (SB-1: one container per conversation,
@@ -62,20 +63,25 @@ _run_subscribers: dict[str, list["asyncio.Queue"]] = {}
 # (CD-6: a second POST while this is set returns 409).
 _active_runs: dict[str, str] = {}
 
-# Sandbox mode as reported by GET /health (set once at startup by main.py's
-# lifespan, read here so the chat runtime uses the same Docker-vs-local
-# decision without re-probing Docker per conversation).
-_sandbox_mode = {"value": "local-unsafe"}
+# Sandbox backend as reported by GET /health (set once at startup by
+# main.py's lifespan via app.sandbox_factory.get_sandbox_backend(), read
+# here so the chat runtime uses the same decision without re-probing).
+_sandbox_mode = {"value": "local"}
 
 
 def set_sandbox_mode(mode: str) -> None:
     _sandbox_mode["value"] = mode
 
 
-def _new_sandbox() -> Sandbox:
-    if _sandbox_mode["value"] == "docker":
-        return DockerSandbox()
-    return LocalSandbox()
+async def _new_sandbox(workspace_ref: str) -> Sandbox:
+    """v2 (SB-6): every call site in this phase always does a fresh
+    `create_sandbox()` with a newly generated `workspace_ref` -- the real
+    "stop idle, resume on next turn" lifecycle (SB-4) that would reuse an
+    existing `conversation.workspace_ref` via `resume_sandbox()` is Phase
+    4's job, logged in DECISIONS.md. This phase only needs the factory
+    interface change to not break anything.
+    """
+    return await create_sandbox(workspace_ref, backend=_sandbox_mode["value"])
 
 
 def _llm_factory() -> LLM:
@@ -101,7 +107,7 @@ async def get_or_create_sandbox(conversation: Conversation, version: AgentVersio
     if existing is not None:
         return existing
 
-    sandbox = _new_sandbox()
+    sandbox = await _new_sandbox(new_id("ws"))
     for f in version.files or []:
         try:
             content = read_file_bytes(f["path_on_disk"])

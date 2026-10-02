@@ -313,6 +313,12 @@ def list_active_cases(session: Session, agent_id: str) -> list[EvalCase]:
 # ---------------------------------------------------------------------------
 # Eval executor (EV-5..EV-8)
 # ---------------------------------------------------------------------------
+# A zero-arg callable returning either a `Sandbox` directly (existing
+# tests' sync factories, e.g. `lambda: LocalSandbox()`) or a coroutine that
+# resolves to one (v2 production factories built on
+# app.sandbox_factory.create_sandbox, which is async because ModalSandbox's
+# construction is natively async) -- `_run_one_trial` awaits the result only
+# when it's actually a coroutine (see below), so both shapes work unchanged.
 SandboxFactory = Callable[[], Sandbox]
 LLMFactory = Callable[[], LLM]
 
@@ -406,6 +412,14 @@ async def _run_one_trial(
     """
     async with semaphore:
         sandbox = sandbox_factory()
+        if asyncio.iscoroutine(sandbox):
+            # v2: production sandbox_factory implementations now call
+            # app.sandbox_factory.create_sandbox(workspace_ref), which is a
+            # coroutine (ModalSandbox.create is natively async). Existing
+            # sync factories (tests, and any future ones) are unaffected --
+            # this only awaits when the factory actually returned a
+            # coroutine, never a plain Sandbox.
+            sandbox = await sandbox
         _seed_sandbox_files(sandbox, version)
         try:
             async def _noop_emit(_event: dict) -> None:

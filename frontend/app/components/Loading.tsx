@@ -17,9 +17,9 @@ export function ErrorBanner({ message }: { message: string }) {
   );
 }
 
-export function SandboxBanner({ sandboxMode }: { sandboxMode: string | null }) {
+export function SandboxBanner({ isolated }: { isolated: boolean | null }) {
   // UI-R7: owner screens show a banner when the sandbox is not isolated.
-  if (sandboxMode !== "local-unsafe") return null;
+  if (isolated !== false) return null;
   return (
     <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
       Sandbox: local, not isolated

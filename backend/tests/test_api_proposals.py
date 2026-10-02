@@ -4,7 +4,7 @@ endpoint table; IM-13, IM-14).
 AC-IM-g: accept with failing verdict and empty note -> 400; with note ->
 version `change_note` starts with `Override:`.
 
-Uses `app_client` (local-unsafe sandbox, isolated DB, no Docker/network) with
+Uses `app_client` (local sandbox backend, isolated DB, no Docker/network) with
 `main.eval_llm_factory` / `main.improver_llm_factory` monkeypatched to
 FakeLLM-backed factories, mirroring `test_api_evals.py`'s pattern.
 """
