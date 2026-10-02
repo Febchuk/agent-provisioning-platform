@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Studio</title>
+
+</head>
+<body>
+
+
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F6F4}
+a{color:#2457C5}a:hover{color:#173C8F}
+.wf{font-family:'IBM Plex Sans',system-ui,sans-serif;color:#1A1A1A;background:#F6F6F4;min-height:100%;font-size:14px;line-height:1.5}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.top{display:flex;align-items:center;gap:20px;padding:14px 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.tabs{display:flex;gap:4px;padding:0 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:12px 14px;color:#55554F;text-decoration:none;border-bottom:2px solid transparent}
+.tab-on{color:#1A1A1A;border-bottom-color:#1A1A1A;font-weight:600}
+.card{background:#fff;border:1px solid #D4D4CF;border-radius:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #1A1A1A;background:#fff;color:#1A1A1A;font:inherit;font-weight:500;cursor:pointer;text-decoration:none}
+.btn-p{background:#2457C5;border-color:#2457C5;color:#fff}
+.lbl{display:block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#55554F;margin-bottom:6px}
+.field{border:1px solid #BDBDB7;border-radius:6px;background:#fff;padding:10px 12px;font:inherit;color:#1A1A1A;width:100%;box-sizing:border-box}
+.code{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;white-space:pre-wrap;border:1px solid #BDBDB7;border-radius:6px;background:#FBFBF9;padding:12px;margin:0}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid #BDBDB7;background:#fff;white-space:nowrap}
+.chip-on{background:#E6EEFB;border-color:#2457C5;color:#173C8F}
+.chip-warn{background:#FBEBDD;border-color:#B4530A;color:#7A3606}
+.muted{color:#55554F}
+.step{border:1px solid #D4D4CF;border-radius:6px;background:#FBFBF9}
+.step-h{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px}
+</style>
+
+<div class="wf">
+  <header class="top">
+    <a href="01-agents.html" style="font-weight:600;font-size:16px;color:#1A1A1A;text-decoration:none">Agent Platform</a>
+    <nav aria-label="Breadcrumb" style="display:flex;gap:6px"><a href="01-agents.html">Agents</a><span class="muted">/</span><span>Revenue Analyst</span></nav>
+    <div style="flex:1"></div>
+    <span class="chip chip-on">v4 deployed</span>
+    <a class="btn" href="04-share-chat.html">Open share link</a>
+  </header>
+  <nav class="tabs" aria-label="Agent sections">
+    <a class="tab tab-on" href="02-studio.html">Configure</a>
+    <a class="tab" href="05-evals.html">Evals <span class="chip chip-warn">2 new</span></a>
+    <a class="tab" href="06-improve.html">Improve</a>
+    <a class="tab" href="03-versions-deploy.html">Versions &amp; Deploy</a>
+  </nav>
+  <main style="padding:24px 32px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;box-sizing:border-box">
+    <section class="card" style="flex:1 1 480px;min-width:0;padding:20px;display:flex;flex-direction:column;gap:18px" aria-labelledby="cfg">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 id="cfg" style="margin:0;font-size:18px;font-weight:600">Configuration</h2>
+        <span class="muted">Editing draft based on v4</span>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1 1 200px"><label class="lbl" for="s1">Name</label><input class="field" id="s1" type="text" value="Revenue Analyst" readonly></div>
+        <div style="flex:1 1 200px"><label class="lbl" for="s2">Model</label><input class="field mono" id="s2" type="text" value="default (hosted)" readonly></div>
+      </div>
+      <details>
+        <summary class="muted" style="cursor:pointer">Advanced: custom model endpoint</summary>
+        <div style="margin-top:8px"><label class="lbl" for="s3">OpenAI-compatible base_url</label><input class="field mono" id="s3" type="text" placeholder="https://your-vllm-host/v1"></div>
+      </details>
+      <div>
+        <span class="lbl">System prompt</span>
+        <pre class="code">You are a data analyst for the sales team.
+Answer questions about orders.csv in the workspace.
+Always compute answers with Python; never guess numbers.
+Show the final number first, then one line on how you got it.</pre>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <span class="lbl">Learned guidelines (skills.md)</span>
+          <a href="03-versions-deploy.html" style="font-size:13px">Added by Improve in v4</a>
+        </div>
+        <pre class="code">## Revenue rules
+- Use the `amount` column, not `list_price`.
+- Dates are UTC; Q3 = Jul 1 to Sep 30.</pre>
+      </div>
+      <div>
+        <span class="lbl">Tools</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="chip chip-on">bash</span><span class="chip chip-on">read_file</span><span class="chip chip-on">write_file</span><span class="chip chip-on">edit_file</span><span class="chip chip-on">list_files</span>
+        </div>
+      </div>
+      <div>
+        <span class="lbl">Workspace files (copied into every chat's sandbox)</span>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span class="chip mono">orders.csv · 2.1 MB</span>
+          <button class="btn" type="button">Upload file</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1 1 140px"><label class="lbl" for="s4">Max steps</label><input class="field" id="s4" type="text" value="15" readonly></div>
+        <div style="flex:1 1 140px"><label class="lbl" for="s5">Tool timeout</label><input class="field" id="s5" type="text" value="30 s" readonly></div>
+      </div>
+      <div style="display:flex;gap:12px;justify-content:flex-end;align-items:center;flex-wrap:wrap;border-top:1px solid #EBEBE7;padding-top:16px">
+        <span class="muted" style="margin-right:auto">Unsaved changes</span>
+        <button class="btn" type="button">Save as v5 draft</button>
+        <a class="btn btn-p" href="03-versions-deploy.html">Save &amp; deploy</a>
+      </div>
+    </section>
+
+    <section class="card" style="flex:1 1 520px;min-width:0;display:flex;flex-direction:column" aria-labelledby="pg">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid #EBEBE7;flex-wrap:wrap">
+        <h2 id="pg" style="margin:0;font-size:18px;font-weight:600">Playground <span class="muted" style="font-weight:400;font-size:14px">· testing the draft</span></h2>
+        <button class="btn" type="button">Reset sandbox</button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div style="align-self:flex-end;max-width:80%;background:#EDEDEA;border-radius:8px;padding:10px 14px">Top 3 products by revenue in Q3?</div>
+        <div class="step">
+          <div class="step-h"><span class="mono muted">1</span><strong class="mono">list_files</strong><span class="muted mono">→ orders.csv</span><span class="muted" style="margin-left:auto">0.1 s</span></div>
+        </div>
+        <div class="step">
+          <div class="step-h"><span class="mono muted">2</span><strong class="mono">bash</strong><span class="muted" style="margin-left:auto">1.8 s</span></div>
+          <pre class="code" style="border:0;border-top:1px solid #EBEBE7;border-radius:0 0 6px 6px">$ python -c "import pandas as pd; df=pd.read_csv('orders.csv') ..."
+product        amount
+[product A]    [amount]
+[product B]    [amount]
+[product C]    [amount]</pre>
+        </div>
+        <div style="max-width:90%">[Agent's final answer: the three products with totals, then one line on method.]</div>
+        <div class="muted" style="font-size:13px">2 steps · 2.4 s · trace saved as run #812</div>
+      </div>
+      <div style="margin-top:auto;display:flex;gap:8px;padding:16px 20px;border-top:1px solid #EBEBE7">
+        <label for="s6" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Message</label>
+        <input class="field" id="s6" type="text" placeholder="Ask the agent something…">
+        <button class="btn btn-p" type="button">Send</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+
+</body>
+</html>

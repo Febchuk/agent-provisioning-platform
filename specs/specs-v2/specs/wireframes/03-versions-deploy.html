@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Versions and Deploy</title>
+
+</head>
+<body>
+
+
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F6F4}
+a{color:#2457C5}a:hover{color:#173C8F}
+.wf{font-family:'IBM Plex Sans',system-ui,sans-serif;color:#1A1A1A;background:#F6F6F4;min-height:100%;font-size:14px;line-height:1.5}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.top{display:flex;align-items:center;gap:20px;padding:14px 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.tabs{display:flex;gap:4px;padding:0 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:12px 14px;color:#55554F;text-decoration:none;border-bottom:2px solid transparent}
+.tab-on{color:#1A1A1A;border-bottom-color:#1A1A1A;font-weight:600}
+.card{background:#fff;border:1px solid #D4D4CF;border-radius:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #1A1A1A;background:#fff;color:#1A1A1A;font:inherit;font-weight:500;cursor:pointer;text-decoration:none}
+.btn-p{background:#2457C5;border-color:#2457C5;color:#fff}
+.btn-s{min-height:36px;padding:0 12px;font-size:13px}
+.lbl{display:block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#55554F;margin-bottom:6px}
+.field{border:1px solid #BDBDB7;border-radius:6px;background:#fff;padding:10px 12px;font:inherit;color:#1A1A1A;width:100%;box-sizing:border-box}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid #BDBDB7;background:#fff;white-space:nowrap}
+.chip-on{background:#E6EEFB;border-color:#2457C5;color:#173C8F}
+.chip-warn{background:#FBEBDD;border-color:#B4530A;color:#7A3606}
+.muted{color:#55554F}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:12px;font-weight:600;color:#55554F;padding:10px 12px;border-bottom:1px solid #D4D4CF;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EBEBE7;vertical-align:top}
+</style>
+
+<div class="wf">
+  <header class="top">
+    <a href="01-agents.html" style="font-weight:600;font-size:16px;color:#1A1A1A;text-decoration:none">Agent Platform</a>
+    <nav aria-label="Breadcrumb" style="display:flex;gap:6px"><a href="01-agents.html">Agents</a><span class="muted">/</span><span>Revenue Analyst</span></nav>
+    <div style="flex:1"></div>
+    <span class="chip chip-on">v4 deployed</span>
+    <a class="btn" href="04-share-chat.html">Open share link</a>
+  </header>
+  <nav class="tabs" aria-label="Agent sections">
+    <a class="tab" href="02-studio.html">Configure</a>
+    <a class="tab" href="05-evals.html">Evals <span class="chip chip-warn">2 new</span></a>
+    <a class="tab" href="06-improve.html">Improve</a>
+    <a class="tab tab-on" href="03-versions-deploy.html">Versions &amp; Deploy</a>
+  </nav>
+  <main style="padding:24px 32px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;box-sizing:border-box">
+    <section class="card" style="flex:999 1 600px;min-width:0" aria-labelledby="vh">
+      <div style="padding:16px 20px;border-bottom:1px solid #EBEBE7">
+        <h2 id="vh" style="margin:0;font-size:18px;font-weight:600">Versions</h2>
+        <p class="muted" style="margin:2px 0 0">Versions never change. Deploying moves the pointer, so rolling back is one click.</p>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Version</th><th>Source</th><th>Change note</th><th>Evals</th><th><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Actions</span></th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="mono" style="font-weight:600">v5</td>
+              <td><span class="chip">Improve proposal</span></td>
+              <td>Exclude refunded orders; label chart axes<div class="muted" style="font-size:13px">Awaiting your review</div></td>
+              <td class="mono">7/8</td>
+              <td><a class="btn btn-s" href="06-improve.html">Review</a></td>
+            </tr>
+            <tr style="background:#F3F7FE">
+              <td class="mono" style="font-weight:600">v4 <span class="chip chip-on" style="margin-left:4px">live</span></td>
+              <td><span class="chip">Improve proposal</span></td>
+              <td>Use amount, not list_price; define Q3 in UTC<div class="muted" style="font-size:13px">Accepted by Febe · met policy</div></td>
+              <td class="mono">5/8</td>
+              <td><button class="btn btn-s" type="button">View diff</button></td>
+            </tr>
+            <tr>
+              <td class="mono" style="font-weight:600">v3</td>
+              <td><span class="chip">Manual edit</span></td>
+              <td>Answer with the number first</td>
+              <td class="mono">3/6</td>
+              <td><button class="btn btn-s" type="button">Roll back to v3</button></td>
+            </tr>
+            <tr>
+              <td class="mono" style="font-weight:600">v2</td>
+              <td><span class="chip">Improve proposal</span></td>
+              <td>Always compute with Python<div class="muted" style="font-size:13px">Accepted with override: "format regression is fine for now"</div></td>
+              <td class="mono">2/4</td>
+              <td><button class="btn btn-s" type="button">Roll back to v2</button></td>
+            </tr>
+            <tr>
+              <td class="mono" style="font-weight:600">v1</td>
+              <td><span class="chip">Created</span></td>
+              <td>From "Data analyst" template</td>
+              <td class="muted mono">—</td>
+              <td><button class="btn btn-s" type="button">Roll back to v1</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section style="flex:1 1 360px;min-width:0;display:flex;flex-direction:column;gap:16px" aria-label="Deploy">
+      <div class="card" style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <h2 style="margin:0;font-size:18px;font-weight:600">Share with teammates</h2>
+        <div>
+          <label class="lbl" for="d1">Chat link (always serves the live version)</label>
+          <div style="display:flex;gap:8px"><input class="field mono" id="d1" type="text" value="/share/revenue-analyst" readonly><button class="btn" type="button">Copy</button></div>
+        </div>
+        <p class="muted" style="margin:0">Anyone with the link can chat and leave feedback. Feedback comes to you on the Evals tab.</p>
+      </div>
+      <div class="card" style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <h2 style="margin:0;font-size:18px;font-weight:600">API</h2>
+        <pre class="mono" style="margin:0;font-size:13px;white-space:pre-wrap;border:1px solid #BDBDB7;border-radius:6px;background:#FBFBF9;padding:12px">POST /v1/agents/revenue-analyst/messages
+Authorization: Bearer sk_••••••••3f2a
+{"conversation_id": null, "message": "…"}</pre>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button">Create API key</button><button class="btn" type="button">Revoke</button></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+
+</body>
+</html>

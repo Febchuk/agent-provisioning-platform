@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Improve proposal</title>
+
+</head>
+<body>
+
+
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F6F4}
+a{color:#2457C5}a:hover{color:#173C8F}
+.wf{font-family:'IBM Plex Sans',system-ui,sans-serif;color:#1A1A1A;background:#F6F6F4;min-height:100%;font-size:14px;line-height:1.5}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.top{display:flex;align-items:center;gap:20px;padding:14px 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.tabs{display:flex;gap:4px;padding:0 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:12px 14px;color:#55554F;text-decoration:none;border-bottom:2px solid transparent}
+.tab-on{color:#1A1A1A;border-bottom-color:#1A1A1A;font-weight:600}
+.card{background:#fff;border:1px solid #D4D4CF;border-radius:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #1A1A1A;background:#fff;color:#1A1A1A;font:inherit;font-weight:500;cursor:pointer;text-decoration:none}
+.btn-p{background:#2457C5;border-color:#2457C5;color:#fff}
+.lbl{display:block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#55554F;margin-bottom:6px}
+.field{border:1px solid #BDBDB7;border-radius:6px;background:#fff;padding:10px 12px;font:inherit;color:#1A1A1A;width:100%;box-sizing:border-box}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid #BDBDB7;background:#fff;white-space:nowrap}
+.chip-on{background:#E6EEFB;border-color:#2457C5;color:#173C8F}
+.chip-warn{background:#FBEBDD;border-color:#B4530A;color:#7A3606}
+.muted{color:#55554F}
+.pass{color:#1F4FB5;font-weight:600}
+.fail{color:#B4530A;font-weight:600}
+.stat{flex:1 1 150px;padding:14px 18px;border-right:1px solid #EBEBE7}
+.dl{display:block;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;padding:2px 12px;white-space:pre-wrap}
+.add{background:#E6EEFB;color:#173C8F}
+.del{background:#FBEBDD;color:#7A3606;text-decoration:line-through}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:12px;font-weight:600;color:#55554F;padding:10px 12px;border-bottom:1px solid #D4D4CF;white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid #EBEBE7;vertical-align:middle}
+</style>
+
+<div class="wf">
+  <header class="top">
+    <a href="01-agents.html" style="font-weight:600;font-size:16px;color:#1A1A1A;text-decoration:none">Agent Platform</a>
+    <nav aria-label="Breadcrumb" style="display:flex;gap:6px"><a href="01-agents.html">Agents</a><span class="muted">/</span><span>Revenue Analyst</span></nav>
+    <div style="flex:1"></div>
+    <span class="chip chip-on">v4 deployed</span>
+    <a class="btn" href="04-share-chat.html">Open share link</a>
+  </header>
+  <nav class="tabs" aria-label="Agent sections">
+    <a class="tab" href="02-studio.html">Configure</a>
+    <a class="tab" href="05-evals.html">Evals</a>
+    <a class="tab tab-on" href="06-improve.html">Improve</a>
+    <a class="tab" href="03-versions-deploy.html">Versions &amp; Deploy</a>
+  </nav>
+  <main style="padding:24px 32px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+      <div>
+        <h1 style="margin:0;font-size:26px;font-weight:600">Proposal: v4 → v5</h1>
+        <p class="muted" style="margin:2px 0 0">Generated from 2 failing cases · evaluated 8 cases × 3 runs on each version</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button">Reject</button>
+        <button class="btn" type="button">Try again</button>
+        <button class="btn" type="button">Accept as v5</button>
+        <a class="btn btn-p" href="03-versions-deploy.html">Accept &amp; deploy v5</a>
+      </div>
+    </div>
+
+    <div class="card" style="display:flex;flex-wrap:wrap;overflow:hidden">
+      <div class="stat"><span class="lbl">Score</span><span class="mono" style="font-size:22px;font-weight:600">5/8 → 7/8</span></div>
+      <div class="stat"><span class="lbl">Fixed</span><span class="mono pass" style="font-size:22px">2</span></div>
+      <div class="stat"><span class="lbl">Regressed</span><span class="mono fail" style="font-size:22px">1</span></div>
+      <div class="stat" style="border-right:0"><span class="lbl">Unchanged</span><span class="mono" style="font-size:22px">5</span></div>
+    </div>
+
+    <div role="status" style="border:1px solid #2457C5;background:#F3F7FE;border-radius:8px;padding:14px 18px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <strong style="color:#173C8F">Meets your policy.</strong>
+      <span style="flex:1 1 400px">+25% average (minimum +5%). 1 regression in <span class="mono">format</span> (limit 1). No pinned cases regressed. No regressions in <span class="mono">accuracy</span> or <span class="mono">safety</span>.</span>
+    </div>
+
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+      <section class="card" style="flex:1 1 480px;min-width:0" aria-labelledby="dh">
+        <div style="padding:16px 20px;border-bottom:1px solid #EBEBE7"><h2 id="dh" style="margin:0;font-size:18px;font-weight:600">What changed</h2></div>
+        <div style="padding:16px 20px;display:flex;flex-direction:column;gap:16px">
+          <div>
+            <span class="lbl">Learned guidelines (skills.md)</span>
+            <div style="border:1px solid #D4D4CF;border-radius:6px;padding:8px 0;background:#FBFBF9">
+              <span class="dl">  ## Revenue rules</span>
+              <span class="dl">  - Use the `amount` column, not `list_price`.</span>
+              <span class="dl add">+ - Exclude orders with status "refunded" from every revenue figure.</span>
+              <span class="dl add">+ - Say how many orders were excluded and why.</span>
+              <span class="dl">  ## Charts</span>
+              <span class="dl del">- - Keep charts minimal.</span>
+              <span class="dl add">+ - Always label both axes, with units.</span>
+            </div>
+          </div>
+          <div>
+            <span class="lbl">System prompt</span>
+            <span class="muted">No changes</span>
+          </div>
+          <div>
+            <span class="lbl">Improver's reasoning</span>
+            <p style="margin:0">Two cases failed for the same reason: the agent followed its rules to the letter but the rules were incomplete. Refund handling and axis labels were never stated, so I added them as rules rather than examples so they apply beyond these two questions.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="flex:1 1 520px;min-width:0" aria-labelledby="mh">
+        <div style="padding:16px 20px;border-bottom:1px solid #EBEBE7"><h2 id="mh" style="margin:0;font-size:18px;font-weight:600">Case by case</h2></div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Case</th><th>Axis</th><th>v4</th><th>v5</th><th>Result</th></tr></thead>
+            <tbody>
+              <tr><td>Q3 revenue excludes refunds</td><td>accuracy</td><td class="mono fail">✗✗✗</td><td class="mono pass">✓✓✓</td><td><span class="chip chip-on">Fixed</span></td></tr>
+              <tr><td>Chart has labeled axes</td><td>format</td><td class="mono fail">✗✗✗</td><td class="mono"><span class="pass">✓✓</span><span class="fail">✗</span></td><td><span class="chip chip-on">Fixed</span></td></tr>
+              <tr style="background:#FFFCF9"><td>States how many rows were used <a href="#" style="font-size:13px;margin-left:4px">compare traces</a></td><td>format</td><td class="mono"><span class="pass">✓</span><span class="fail">✗</span><span class="pass">✓</span></td><td class="mono"><span class="fail">✗✗</span><span class="pass">✓</span></td><td><span class="chip chip-warn">Regressed</span></td></tr>
+              <tr><td>Top 3 products in Q3 <span class="chip" style="margin-left:4px">Pinned</span></td><td>accuracy</td><td class="mono pass">✓✓✓</td><td class="mono pass">✓✓✓</td><td class="muted">Same</td></tr>
+              <tr><td>Writes monthly_revenue.csv <span class="chip" style="margin-left:4px">Pinned</span></td><td>tool-use</td><td class="mono pass">✓✓✓</td><td class="mono pass">✓✓✓</td><td class="muted">Same</td></tr>
+              <tr><td>Won't delete orders.csv <span class="chip" style="margin-left:4px">Pinned</span></td><td>safety</td><td class="mono pass">✓✓✓</td><td class="mono pass">✓✓✓</td><td class="muted">Same</td></tr>
+              <tr><td>Handles rows with missing dates</td><td>accuracy</td><td class="mono pass">✓✓✓</td><td class="mono pass">✓✓✓</td><td class="muted">Same</td></tr>
+              <tr><td>Average order value by region</td><td>accuracy</td><td class="mono"><span class="fail">✗</span><span class="pass">✓</span><span class="fail">✗</span></td><td class="mono"><span class="fail">✗</span><span class="pass">✓</span><span class="fail">✗</span></td><td class="muted">Still failing</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="padding:18px 20px;display:flex;flex-direction:column;gap:10px" aria-labelledby="nh">
+      <h2 id="nh" style="margin:0;font-size:16px;font-weight:600">Change note</h2>
+      <label class="muted" for="i1">Saved to the version history. Required if you accept a proposal that fails your policy.</label>
+      <input class="field" id="i1" type="text" placeholder="e.g. Exclude refunds; label chart axes">
+    </section>
+  </main>
+</div>
+
+
+</body>
+</html>

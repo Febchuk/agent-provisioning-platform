@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Share Chat</title>
+
+</head>
+<body>
+
+
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F6F4}
+a{color:#2457C5}a:hover{color:#173C8F}
+.wf{font-family:'IBM Plex Sans',system-ui,sans-serif;color:#1A1A1A;background:#F6F6F4;min-height:100%;font-size:15px;line-height:1.55}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.top{display:flex;align-items:center;gap:16px;padding:14px 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.card{background:#fff;border:1px solid #D4D4CF;border-radius:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #1A1A1A;background:#fff;color:#1A1A1A;font:inherit;font-size:14px;font-weight:500;cursor:pointer;text-decoration:none}
+.btn-p{background:#2457C5;border-color:#2457C5;color:#fff}
+.icon{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:6px;border:1px solid #D4D4CF;background:#fff;color:#55554F;cursor:pointer}
+.icon-on{border-color:#B4530A;background:#FBEBDD;color:#7A3606}
+.lbl{display:block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#55554F;margin-bottom:6px}
+.field{border:1px solid #BDBDB7;border-radius:6px;background:#fff;padding:10px 12px;font:inherit;color:#1A1A1A;width:100%;box-sizing:border-box}
+.muted{color:#55554F}
+.code{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;white-space:pre-wrap;margin:0;padding:10px 12px;background:#FBFBF9;border-top:1px solid #EBEBE7}
+</style>
+
+<div class="wf">
+  <header class="top">
+    <div>
+      <div style="font-weight:600;font-size:17px">Revenue Analyst</div>
+      <div class="muted" style="font-size:13px">Built by Febe · asks about orders.csv</div>
+    </div>
+    <div style="flex:1"></div>
+    <button class="btn" type="button">New chat</button>
+  </header>
+  <main style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;padding:24px 32px;box-sizing:border-box;max-width:1200px;margin:0 auto">
+    <section style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:16px" aria-label="Conversation">
+      <div style="align-self:flex-end;max-width:80%;background:#EDEDEA;border-radius:8px;padding:10px 14px">What was total revenue in Q3?</div>
+
+      <div class="card" style="padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+        <details open>
+          <summary class="muted" style="cursor:pointer;font-size:14px">Worked for 2 steps · 2.1 s</summary>
+          <div style="margin-top:8px;border:1px solid #D4D4CF;border-radius:6px;overflow:hidden">
+            <div style="display:flex;gap:8px;padding:8px 12px;font-size:13px"><strong class="mono">bash</strong><span class="muted">ran Python on orders.csv</span></div>
+            <pre class="code">df = pd.read_csv("orders.csv", parse_dates=["created_at"])
+q3 = df[df.created_at.between("2026-07-01", "2026-09-30")]
+q3.amount.sum()</pre>
+          </div>
+        </details>
+        <div>[Agent's answer: Q3 total revenue, computed over all orders, including refunded ones.]</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="icon" type="button" aria-label="Good answer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg></button>
+          <button class="icon icon-on" type="button" aria-label="Bad answer" aria-pressed="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg></button>
+        </div>
+        <div style="border:1px solid #B4530A;border-radius:8px;padding:16px;background:#FFFCF9;display:flex;flex-direction:column;gap:12px">
+          <label class="lbl" for="f1" style="margin:0">What should it have done?</label>
+          <div class="field" id="f1" role="textbox" aria-multiline="true" style="min-height:72px">Revenue should exclude refunded orders (status = "refunded").</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="muted" style="font-size:13px;margin-right:auto">Sent to Febe, who decides whether it becomes a test.</span>
+            <button class="btn" type="button">Cancel</button>
+            <button class="btn btn-p" type="button">Send feedback</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <label for="f2" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Message</label>
+        <input class="field" id="f2" type="text" placeholder="Ask about the orders data…">
+        <button class="btn btn-p" type="button">Send</button>
+      </div>
+    </section>
+
+    <aside class="card" style="flex:1 1 260px;padding:16px 18px;display:flex;flex-direction:column;gap:10px" aria-label="Files in this chat">
+      <span class="lbl" style="margin:0">Files in this chat</span>
+      <div style="display:flex;align-items:center;gap:8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg><span class="mono" style="font-size:13px">orders.csv</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg><a href="#" class="mono" style="font-size:13px">q3_by_month.png</a></div>
+      <p class="muted" style="margin:6px 0 0;font-size:13px">Files the agent creates stay for the whole chat. Each chat has its own sandbox.</p>
+    </aside>
+  </main>
+</div>
+
+
+</body>
+</html>

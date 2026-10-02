@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Evals</title>
+
+</head>
+<body>
+
+
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F6F4}
+a{color:#2457C5}a:hover{color:#173C8F}
+.wf{font-family:'IBM Plex Sans',system-ui,sans-serif;color:#1A1A1A;background:#F6F6F4;min-height:100%;font-size:14px;line-height:1.5}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.top{display:flex;align-items:center;gap:20px;padding:14px 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.tabs{display:flex;gap:4px;padding:0 32px;border-bottom:1px solid #D4D4CF;background:#fff;flex-wrap:wrap}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:12px 14px;color:#55554F;text-decoration:none;border-bottom:2px solid transparent}
+.tab-on{color:#1A1A1A;border-bottom-color:#1A1A1A;font-weight:600}
+.card{background:#fff;border:1px solid #D4D4CF;border-radius:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #1A1A1A;background:#fff;color:#1A1A1A;font:inherit;font-weight:500;cursor:pointer;text-decoration:none}
+.btn-p{background:#2457C5;border-color:#2457C5;color:#fff}
+.btn-s{min-height:36px;padding:0 12px;font-size:13px}
+.lbl{display:block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#55554F;margin-bottom:6px}
+.field{border:1px solid #BDBDB7;border-radius:6px;background:#fff;padding:8px 10px;font:inherit;color:#1A1A1A;width:100%;box-sizing:border-box}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid #BDBDB7;background:#fff;white-space:nowrap}
+.chip-on{background:#E6EEFB;border-color:#2457C5;color:#173C8F}
+.chip-warn{background:#FBEBDD;border-color:#B4530A;color:#7A3606}
+.muted{color:#55554F}
+.pass{color:#1F4FB5;font-weight:600}
+.fail{color:#B4530A;font-weight:600}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:12px;font-weight:600;color:#55554F;padding:10px 12px;border-bottom:1px solid #D4D4CF;white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid #EBEBE7;vertical-align:middle}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0}
+</style>
+
+<div class="wf">
+  <header class="top">
+    <a href="01-agents.html" style="font-weight:600;font-size:16px;color:#1A1A1A;text-decoration:none">Agent Platform</a>
+    <nav aria-label="Breadcrumb" style="display:flex;gap:6px"><a href="01-agents.html">Agents</a><span class="muted">/</span><span>Revenue Analyst</span></nav>
+    <div style="flex:1"></div>
+    <span class="chip chip-on">v4 deployed</span>
+    <a class="btn" href="04-share-chat.html">Open share link</a>
+  </header>
+  <nav class="tabs" aria-label="Agent sections">
+    <a class="tab" href="02-studio.html">Configure</a>
+    <a class="tab tab-on" href="05-evals.html">Evals <span class="chip chip-warn">2 new</span></a>
+    <a class="tab" href="06-improve.html">Improve</a>
+    <a class="tab" href="03-versions-deploy.html">Versions &amp; Deploy</a>
+  </nav>
+  <main style="padding:24px 32px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;box-sizing:border-box">
+    <div style="flex:999 1 640px;min-width:0;display:flex;flex-direction:column;gap:24px">
+      <section aria-labelledby="fb" style="display:flex;flex-direction:column;gap:12px">
+        <h2 id="fb" style="margin:0;font-size:18px;font-weight:600">From feedback <span class="muted" style="font-weight:400">· 2 to review</span></h2>
+        <article class="card" style="padding:18px;display:flex;flex-direction:column;gap:12px;border-color:#B4530A">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="chip chip-warn">Thumbs down</span><span class="muted">from a teammate · 2h ago · <a href="04-share-chat.html">open chat</a></span>
+          </div>
+          <div style="display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 12px">
+            <span class="muted">Asked</span><span>What was total revenue in Q3?</span>
+            <span class="muted">Agent said</span><span>[Q3 total including refunded orders]</span>
+            <span class="muted">Correction</span><span style="font-weight:500">Revenue should exclude refunded orders (status = "refunded").</span>
+          </div>
+          <div style="background:#FBFBF9;border:1px solid #EBEBE7;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:10px">
+            <span class="lbl" style="margin:0">Drafted test case</span>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <div style="flex:1 1 160px"><label class="lbl" for="e1">Check</label><input class="field" id="e1" type="text" value="LLM judge" readonly></div>
+              <div style="flex:1 1 160px"><label class="lbl" for="e2">Axis</label><input class="field" id="e2" type="text" value="accuracy" readonly></div>
+            </div>
+            <div><label class="lbl" for="e3">Rubric</label><div class="field" id="e3" role="textbox">Passes if the answer excludes orders with status "refunded" and says how many were excluded.</div></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-p" type="button">Add as test case</button>
+            <button class="btn" type="button">Edit first</button>
+            <button class="btn" type="button">Dismiss</button>
+          </div>
+        </article>
+        <article class="card" style="padding:14px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span class="chip chip-warn">Thumbs down</span>
+          <span style="flex:1 1 240px">"The chart has no axis labels." <span class="muted">→ draft: python assert, axis format</span></span>
+          <button class="btn btn-s" type="button">Review</button>
+        </article>
+      </section>
+
+      <section class="card" aria-labelledby="cs" style="min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid #EBEBE7;flex-wrap:wrap">
+          <h2 id="cs" style="margin:0;font-size:18px;font-weight:600">Test cases <span class="muted" style="font-weight:400">· 8</span></h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button">+ Add case</button><button class="btn" type="button">Run on v4</button></div>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Case</th><th>Axis</th><th>Check</th><th>Pinned</th><th>v4 (3 runs)</th></tr></thead>
+            <tbody>
+              <tr><td>Q3 revenue excludes refunds</td><td>accuracy</td><td>LLM judge</td><td class="muted">—</td><td class="mono"><span class="fail">✗ ✗ ✗</span></td></tr>
+              <tr><td>Top 3 products in Q3</td><td>accuracy</td><td>contains</td><td><span class="chip">Pinned</span></td><td class="mono"><span class="pass">✓ ✓ ✓</span></td></tr>
+              <tr><td>Writes monthly_revenue.csv</td><td>tool-use</td><td>python assert</td><td><span class="chip">Pinned</span></td><td class="mono"><span class="pass">✓ ✓ ✓</span></td></tr>
+              <tr><td>States how many rows were used</td><td>format</td><td>LLM judge</td><td class="muted">—</td><td class="mono"><span class="pass">✓</span> <span class="fail">✗</span> <span class="pass">✓</span></td></tr>
+              <tr><td>Won't delete orders.csv</td><td>safety</td><td>python assert</td><td><span class="chip">Pinned</span></td><td class="mono"><span class="pass">✓ ✓ ✓</span></td></tr>
+              <tr><td>Chart has labeled axes</td><td>format</td><td>python assert</td><td class="muted">—</td><td class="mono"><span class="fail">✗ ✗ ✗</span></td></tr>
+              <tr><td>Handles rows with missing dates</td><td>accuracy</td><td>contains</td><td class="muted">—</td><td class="mono"><span class="pass">✓ ✓ ✓</span></td></tr>
+              <tr><td>Average order value by region</td><td>accuracy</td><td>contains</td><td class="muted">—</td><td class="mono"><span class="fail">✗</span> <span class="pass">✓</span> <span class="fail">✗</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 20px;flex-wrap:wrap">
+          <span class="muted">Pass = 2 of 3 runs. v4 passes 5 of 8.</span>
+          <a class="btn btn-p" href="06-improve.html">Improve from failing cases</a>
+        </div>
+      </section>
+    </div>
+
+    <aside class="card" style="flex:1 1 320px;padding:20px;display:flex;flex-direction:column;gap:14px" aria-labelledby="pol">
+      <h2 id="pol" style="margin:0;font-size:18px;font-weight:600">Promotion policy</h2>
+      <p class="muted" style="margin:0">Improve proposals are checked against this. You always make the final call.</p>
+      <div><label class="lbl" for="p1">Minimum average improvement</label><input class="field" id="p1" type="text" value="+5%" readonly></div>
+      <div>
+        <span class="lbl">Max regressions per axis</span>
+        <div class="row"><label for="p2">accuracy</label><input class="field" id="p2" type="text" value="0" readonly style="width:72px"></div>
+        <div class="row"><label for="p3">safety</label><input class="field" id="p3" type="text" value="0" readonly style="width:72px"></div>
+        <div class="row"><label for="p4">tool-use</label><input class="field" id="p4" type="text" value="1" readonly style="width:72px"></div>
+        <div class="row"><label for="p5">format</label><input class="field" id="p5" type="text" value="1" readonly style="width:72px"></div>
+      </div>
+      <div style="background:#F3F7FE;border:1px solid #C9D7F2;border-radius:6px;padding:10px 12px">Pinned cases can never regress.</div>
+      <div class="row"><label for="p6">Runs per case</label><input class="field" id="p6" type="text" value="3" readonly style="width:72px"></div>
+      <button class="btn" type="button">Save policy</button>
+    </aside>
+  </main>
+</div>
+
+
+</body>
+</html>
